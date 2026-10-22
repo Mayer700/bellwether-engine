@@ -1,0 +1,152 @@
+{
+  "milestone": "Reviewed foundation; engine and full game port remain active",
+  "date": "2026-10-22T19:49:27.5662537+03:00",
+  "platform_verified": "Windows x64 / NVIDIA GeForce RTX 3070",
+  "toolchain": "GCC 16.1.0, CMake 4.4.1, Ninja, Python 3.14.7, clang-format 19.1.7",
+  "selected_stack": [
+    "C++20",
+    "GLFW 3.4",
+    "NVRHI Vulkan 1.3",
+    "GLM 1.0.1",
+    "Lua 5.4.8"
+  ],
+  "planned_not_linked": [
+    "miniaudio",
+    "physics backend"
+  ],
+  "debug_ctest": {
+    "passed": 3,
+    "failed": 0,
+    "core_assertions": 49,
+    "tests": [
+      "CoreAndScripting",
+      "AgentCommands",
+      "VulkanLifecycle"
+    ]
+  },
+  "release_ctest": {
+    "passed": 3,
+    "failed": 0,
+    "fresh_fetched_sources": true
+  },
+  "rendering": {
+    "static_instances": 4504,
+    "frames_per_replay": 12,
+    "resized": true,
+    "readback_probe_pixels": 2961,
+    "source_capture_pixels": 576000,
+    "source_capture_foreground_pixels": 87903,
+    "nvrhi_errors": 0,
+    "khronos_validation_layers_verified": false,
+    "preview": "Evidence/World.png",
+    "comparison_to_godot_performance": "Not measured",
+    "comparison_to_godot_quality": "Not established"
+  },
+  "remote": {
+    "url": "https://github.com/TheCherno/AIGameEngine",
+    "lookup_result": "Git repository-not-found and connected API 404",
+    "published": false
+  },
+  "source_hashes": [
+    {
+      "path": "Source/AgentMain.cpp",
+      "sha256": "C357FFCFCB70B38B15A2B54658B277275504E8E1407021E49285F4C3D3BEF3DC"
+    },
+    {
+      "path": "Source/EditorMain.cpp",
+      "sha256": "4A83332796343FDEB7CD977F1757723DE8E69D5C2A1C8C841E177CE8B59C73AA"
+    },
+    {
+      "path": "Source/RuntimeMain.cpp",
+      "sha256": "B53FED0106924E60DEA91C59F28DE42EAC3EA421A2D617FD802A432BE1E57002"
+    },
+    {
+      "path": "Source/Bellwether/FileSystem.cpp",
+      "sha256": "A2CC59CDF9716B6C0848C462C837CC0E39556B482ECDF4075FAE672986CC3215"
+    },
+    {
+      "path": "Source/Bellwether/Scene.cpp",
+      "sha256": "320E5D020A607AAA77EDBE45D6D58BA65ADDE855A54D757407718E86F0019CD7"
+    },
+    {
+      "path": "Source/Bellwether/Scene.h",
+      "sha256": "023C471338769DBBC6B79983F41E157F554A608B887203C914483B96BD0D8A78"
+    },
+    {
+      "path": "Source/Bellwether/ScriptRuntime.cpp",
+      "sha256": "81C65FBADA405E5EBF5C9BDEFE54F6A1485D0C01C0D69C59D5CE9C3B26F24479"
+    },
+    {
+      "path": "Source/Bellwether/ScriptRuntime.h",
+      "sha256": "0507C40D42EF49ACEA557CFFC82BAC88DB1FB6C704DB30091E14E1F2F702C487"
+    },
+    {
+      "path": "Source/Bellwether/VulkanContext.cpp",
+      "sha256": "4597C92BA05CFA4C0D2D7DAF4270428DA5112605BBD48856338F5B3E6E7B4C16"
+    },
+    {
+      "path": "Source/Bellwether/VulkanContext.h",
+      "sha256": "E518401AC179B803BBCAA6CA0A0C5DEA8FD6089BA142418F473CE60D5D7BE662"
+    },
+    {
+      "path": "Source/Bellwether/WorldRenderer.cpp",
+      "sha256": "6FF1F48ECBF2163076C8115E3EC2D552447145744FEA51D5506BD1B32B274FA2"
+    },
+    {
+      "path": "Source/Bellwether/WorldRenderer.h",
+      "sha256": "1AC7A7B74AE8A312B882022086011446A709F42D4172281C4495DA6A0B7DA697"
+    },
+    {
+      "path": "Tests/AgentTests.cmake",
+      "sha256": "D95BC8019481938F5B450913C66C628BDC3ED1C080ED67FFEFDE4EB7AF2177A5"
+    },
+    {
+      "path": "Tests/CoreTests.cpp",
+      "sha256": "5B2C4EDDB02CB48338DFEAE166AEB64F14AE713606C1E96A55BD454E50EE3945"
+    },
+    {
+      "path": "Shaders/World.frag",
+      "sha256": "D3D30CBB2F9CEF6A09150D0B3E4D79D0AB8571BDE6EAA7DE003E481ED3ECE670"
+    },
+    {
+      "path": "Shaders/World.vert",
+      "sha256": "A37EAE2099874BCF9E0C667565C26DB172CF7A626F08851E43365D079EFC8BC1"
+    },
+    {
+      "path": "Tools/BuildFeatureWorld.py",
+      "sha256": "7A50C098FABA060716D98C999AA22D1469148B60A905AD2F8E9279A9A94C31A4"
+    },
+    {
+      "path": "Tools/ConvertCapture.py",
+      "sha256": "58AA66C3D062A83BB024DDE5F227F74CF2B5D0DFF2D8C9BCA090BD929E3D078A"
+    },
+    {
+      "path": "Tools/ExportGodot.gd",
+      "sha256": "9AF70367189A7750DACB9178C01FCBA0E221CC528F7D6A431E332D19627A5C90"
+    },
+    {
+      "path": "Tools/ExportGodot.gd.uid",
+      "sha256": "003F7161C3C9ADB616987D411CECADE4D89B2D6709051DC5B67BCDC6E7316037"
+    },
+    {
+      "path": "Tools/FetchDependency.cmake",
+      "sha256": "E2045862813A928EFBF826862B443C8AD491006D6B5846C09AFB19D5EB33DAE3"
+    },
+    {
+      "path": "Tools/Validate.ps1",
+      "sha256": "AE7093D68B30810D8780697CB6FEEF805A3E683F08D4217AC69FB79211D0765F"
+    },
+    {
+      "path": "Scenes/FeatureTest.bwscene",
+      "sha256": "792B830DF12B8864B2298EBF4820B77BC306AB4CFF2223AD6AF2E3C0B2BBC5FD"
+    },
+    {
+      "path": "Scenes/FeatureTest.lua",
+      "sha256": "0F1E625D401E1CC837EA0CAB4EBAFD0EE01C4F45013F5A6E335C65851D1098C0"
+    },
+    {
+      "path": "Scenes/FeatureWorld.json",
+      "sha256": "6A05AC39C23A75A3E97F6CEDF1E302C7B6701EE5F611F14FA10B7EF03AD74313"
+    }
+  ]
+}

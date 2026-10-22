@@ -1,0 +1,9 @@
+{
+  "version": 5,
+  "configurePresets": [
+    {"name":"dev","displayName":"Debug engine and Vulkan","generator":"Ninja","binaryDir":"${sourceDir}/Build/dev","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","BUILD_TESTING":"ON","BELLWETHER_BUILD_GRAPHICS":"ON"}},
+    {"name":"core","displayName":"Core and Lua without GPU","generator":"Ninja","binaryDir":"${sourceDir}/Build/core","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","BUILD_TESTING":"ON","BELLWETHER_BUILD_GRAPHICS":"OFF"}}
+  ],
+  "buildPresets":[{"name":"dev","configurePreset":"dev"},{"name":"core","configurePreset":"core"}],
+  "testPresets":[{"name":"dev","configurePreset":"dev","output":{"outputOnFailure":true}},{"name":"core","configurePreset":"core","output":{"outputOnFailure":true}}]
+}

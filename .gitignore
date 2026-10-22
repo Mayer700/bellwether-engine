@@ -1,0 +1,13 @@
+/Build*/
+/Vendor/
+/Cache/
+/Exports/
+/Evidence/*.ppm
+/Evidence/*.png
+/Evidence/TestScene.bwscene
+/Evidence/ConcurrentWrite.txt
+*.user
+*.log
+*.tmp
+*.import
+.DS_Store

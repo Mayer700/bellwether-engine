@@ -1,0 +1,8 @@
+{
+  "Description": "GPU feature fixture: mesh/index buffers, transforms, per-object material pushes, metallic/roughness/emission, depth and terrain, camera and readback.",
+  "Objects": [
+    {"Translation":[0,0,8], "Scale":[7,5,7], "Color":[0.48,0.28,0.13], "Roughness":0.85, "Metallic":0, "Emission":[0,0,0]},
+    {"Translation":[-9,0,6], "Scale":[3,3,3], "Color":[0.35,0.4,0.5], "Roughness":0.22, "Metallic":1, "Emission":[0,0,0]},
+    {"Translation":[7,0,10], "Scale":[2,2,2], "Color":[0.7,0.3,0.1], "Roughness":0.6, "Metallic":0, "Emission":[0.6,0.15,0.02]}
+  ]
+}

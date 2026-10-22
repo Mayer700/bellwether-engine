@@ -1,0 +1,17 @@
+-- Every currently implemented scripting API appears here and is executed by CTest.
+local entity = Engine.CreateEntity("Created in Lua")
+assert(Engine.Exists(entity))
+Engine.SetPosition(entity, 1, 2, 3)
+local x, y, z = Engine.GetPosition(entity)
+assert(x == 1 and y == 2 and z == 3)
+assert(Engine.GetName(entity) == "Created in Lua")
+Engine.Rename(entity, "Renamed in Lua")
+assert(Engine.GetName(entity) == "Renamed in Lua")
+Engine.DestroyEntity(entity)
+assert(not Engine.Exists(entity))
+local prefab = Engine.SpawnPrefab([[{"Name":"Prefab Child","Transform":{"Translation":[0,0,0],"Rotation":[0,0,0],"Scale":[1,1,1]},"Script":""}]])
+assert(Engine.Exists(prefab))
+function OnUpdate(timestep)
+    local px, py, pz = Engine.GetPosition(prefab)
+    Engine.SetPosition(prefab, px + timestep, py, pz)
+end
