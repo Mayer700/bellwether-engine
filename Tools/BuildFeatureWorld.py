@@ -32,5 +32,5 @@ for item in description['Objects']:
                   'color':[*item['Color'],1], 'roughness':item['Roughness'],
                   'metallic':item['Metallic'], 'emission':item['Emission'], 'visible':True})
 (output / 'height.f32').write_bytes(struct.pack('<16f', *([0]*16)))
-(output / 'world.json').write_text(json.dumps({'format':1,'height_size':4,'world_size':384,
-    'meshes':[{'path':'meshes/fixture.bin'}], 'draws':draws}), encoding='utf-8')
+(output / 'world.json').write_text(json.dumps({'format':1,'Fixture':'BellwetherRenderer_v1','height_size':4,'world_size':384,
+    'meshes':[{'path':'meshes/fixture.bin'}], 'draws':draws, 'Renderer':description['Renderer']}), encoding='utf-8')

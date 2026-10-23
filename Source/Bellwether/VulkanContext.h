@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include "RenderSettings.h"
 
 namespace Bellwether
 {
@@ -23,6 +24,9 @@ namespace Bellwether
 		std::string GetDeviceName() const;
 		unsigned GetValidationErrors() const;
 		void Shutdown();
+		void SetRenderSettings(const RenderSettings& settings);
+		void VerifyRenderer(const std::filesystem::path& outputDirectory,
+							const std::filesystem::path& fixtureDirectory);
 
 	  private:
 		class Implementation;

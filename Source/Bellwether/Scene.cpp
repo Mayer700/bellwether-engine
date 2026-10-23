@@ -114,7 +114,10 @@ namespace Bellwether
 
 	Json Scene::Serialize() const
 	{
-		Json result = {{"Format", 1}, {"NextID", m_NextID}, {"Entities", Json::array()}};
+		Json result = {{"Format", 1},
+					   {"NextID", m_NextID},
+					   {"Entities", Json::array()},
+					   {"Renderer", m_RenderSettings.Serialize()}};
 		for (const auto& [id, entity] : m_Entities)
 		{
 			result["Entities"].push_back({{"ID", id},
@@ -146,10 +149,12 @@ namespace Bellwether
 
 	void Scene::Deserialize(const Json& data)
 	{
-		ValidateFields(data, {"Format", "NextID", "Entities"});
+		ValidateFields(data, {"Format", "NextID", "Entities", "Renderer"});
 		if (data.at("Format") != 1 || !data.at("Entities").is_array())
 			throw std::invalid_argument("Unsupported scene format");
 		Scene candidate;
+		if (data.contains("Renderer"))
+			candidate.SetRenderSettings(RenderSettings::Deserialize(data["Renderer"]));
 		if (data.at("Entities").size() > 100000)
 			throw std::invalid_argument("Scene entity budget exceeded (100000)");
 		for (const auto& entry : data.at("Entities"))
@@ -180,7 +185,17 @@ namespace Bellwether
 		for (const auto& command : commands)
 		{
 			auto operation = command.at("Operation").get<std::string>();
-			if (operation == "Create")
+			if (operation == "SetRendererSettings")
+			{
+				ValidateFields(command, {"Operation", "Settings"});
+				if (!command.at("Settings").is_object())
+					throw std::invalid_argument("Renderer settings command must contain an object");
+				auto settings = candidate.GetRenderSettings().Serialize();
+				for (const auto& [name, value] : command.at("Settings").items())
+					settings[name] = value;
+				candidate.SetRenderSettings(RenderSettings::Deserialize(settings));
+			}
+			else if (operation == "Create")
 			{
 				ValidateFields(command, {"Operation", "Name", "Translation"});
 				auto id = candidate.CreateEntity(command.at("Name"));
@@ -232,6 +247,17 @@ namespace Bellwether
 		ReadEntity(candidate.GetEntity(id), prefab);
 		*this = std::move(candidate);
 		return id;
+	}
+
+	const RenderSettings& Scene::GetRenderSettings() const
+	{
+		return m_RenderSettings;
+	}
+
+	void Scene::SetRenderSettings(const RenderSettings& settings)
+	{
+		settings.Validate();
+		m_RenderSettings = settings;
 	}
 
 } // namespace Bellwether

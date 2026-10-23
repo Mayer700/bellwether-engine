@@ -22,15 +22,39 @@ namespace Bellwether
 		return data;
 	}
 
+	static std::filesystem::path ResolveAssetPath(const std::filesystem::path& directory,
+												  const std::filesystem::path& relative)
+	{
+		if (relative.has_root_path() || relative.generic_string().find("..") != std::string::npos)
+			throw std::invalid_argument("Mesh paths must stay within the content directory");
+		auto root = std::filesystem::weakly_canonical(directory);
+		auto candidate = std::filesystem::weakly_canonical(root / relative);
+		auto prefix = std::mismatch(root.begin(), root.end(), candidate.begin(), candidate.end());
+		if (prefix.first != root.end())
+			throw std::invalid_argument("Asset link resolves outside the content directory");
+		return candidate;
+	}
+
 	WorldRenderer::WorldRenderer(nvrhi::IDevice* device) : m_Device(device)
 	{
-		auto directory = std::filesystem::path(BELLWETHER_SHADER_DIRECTORY);
-		auto vertex = ReadBinary(directory / "World.vert.spv");
-		auto fragment = ReadBinary(directory / "World.frag.spv");
-		m_VertexShader = device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Vertex),
-											  vertex.data(), vertex.size());
-		m_FragmentShader = device->createShader(nvrhi::ShaderDesc().setShaderType(nvrhi::ShaderType::Pixel),
-												fragment.data(), fragment.size());
+		if (!device)
+			throw std::invalid_argument("World renderer requires a graphics device");
+		static_assert(sizeof(FrameData) == 256);
+		auto directory = GetExecutableDirectory() / "Shaders";
+		auto shader = [&](const char* filename, nvrhi::ShaderType type)
+		{
+			auto data = ReadBinary(directory / filename);
+			auto result = device->createShader(nvrhi::ShaderDesc().setShaderType(type).setDebugName(filename),
+											   data.data(), data.size());
+			if (!result)
+				throw std::runtime_error(std::string("Cannot create shader: ") + filename);
+			return result;
+		};
+		m_VertexShader = shader("World.vert.spv", nvrhi::ShaderType::Vertex);
+		m_FragmentShader = shader("World.frag.spv", nvrhi::ShaderType::Pixel);
+		m_ShadowShader = shader("Shadow.vert.spv", nvrhi::ShaderType::Vertex);
+		m_FullscreenShader = shader("Fullscreen.vert.spv", nvrhi::ShaderType::Vertex);
+		m_TonemapShader = shader("Tonemap.frag.spv", nvrhi::ShaderType::Pixel);
 		nvrhi::VertexAttributeDesc attributes[] = {nvrhi::VertexAttributeDesc()
 													   .setName("POSITION")
 													   .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -50,18 +74,75 @@ namespace Bellwether
 		m_Layout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
 												   .setVisibility(nvrhi::ShaderType::All)
 												   .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
-												   .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96)));
+												   .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96))
+												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
+												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
+												   .addItem(nvrhi::BindingLayoutItem::Sampler(0)));
+		m_ShadowLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
+														 .setVisibility(nvrhi::ShaderType::Vertex)
+														 .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
+														 .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96)));
+		m_PostLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
+													   .setVisibility(nvrhi::ShaderType::All)
+													   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
+													   .addItem(nvrhi::BindingLayoutItem::Sampler(0))
+													   .addItem(nvrhi::BindingLayoutItem::PushConstants(0, 16)));
 		m_Camera = device->createBuffer(nvrhi::BufferDesc()
-											.setByteSize(80)
+											.setByteSize(sizeof(FrameData))
 											.setIsConstantBuffer(true)
 											.setIsVolatile(true)
-											.setMaxVersions(16)
+											.setMaxVersions(64)
 											.setDebugName("Camera"));
+		m_ShadowSampler = device->createSampler(nvrhi::SamplerDesc()
+													.setAllFilters(false)
+													.setAllAddressModes(nvrhi::SamplerAddressMode::Border)
+													.setBorderColor(nvrhi::Color(1)));
+		m_LinearSampler = device->createSampler(
+			nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+		if (!m_InputLayout || !m_Layout || !m_ShadowLayout || !m_PostLayout || !m_Camera || !m_ShadowSampler ||
+			!m_LinearSampler)
+			throw std::runtime_error("Cannot create renderer layouts, frame data or samplers");
+		for (size_t index = 0; index < 2; index++)
+		{
+			m_ShadowMaps[index] = device->createTexture(nvrhi::TextureDesc()
+															.setWidth(s_ShadowResolution)
+															.setHeight(s_ShadowResolution)
+															.setFormat(nvrhi::Format::D32)
+															.setIsRenderTarget(true)
+															.setInitialState(nvrhi::ResourceStates::ShaderResource)
+															.setKeepInitialState(true)
+															.setDebugName("Sun Cascade " + std::to_string(index)));
+			if (!m_ShadowMaps[index])
+				throw std::runtime_error("Cannot allocate sun shadow map");
+			m_ShadowFramebuffers[index] =
+				device->createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(m_ShadowMaps[index]));
+			if (!m_ShadowFramebuffers[index])
+				throw std::runtime_error("Cannot create sun shadow framebuffer");
+		}
 		m_Bindings = device->createBindingSet(nvrhi::BindingSetDesc()
 												  .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
-												  .addItem(nvrhi::BindingSetItem::PushConstants(1, 96)),
+												  .addItem(nvrhi::BindingSetItem::PushConstants(1, 96))
+												  .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_ShadowMaps[0]))
+												  .addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_ShadowMaps[1]))
+												  .addItem(nvrhi::BindingSetItem::Sampler(0, m_ShadowSampler)),
 											  m_Layout);
-		if (!m_VertexShader || !m_FragmentShader || !m_Layout || !m_Camera || !m_Bindings || !m_InputLayout)
+		m_ShadowBindings = device->createBindingSet(nvrhi::BindingSetDesc()
+														.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
+														.addItem(nvrhi::BindingSetItem::PushConstants(1, 96)),
+													m_ShadowLayout);
+		auto shadowPipeline = nvrhi::GraphicsPipelineDesc()
+								  .setVertexShader(m_ShadowShader)
+								  .setInputLayout(m_InputLayout)
+								  .addBindingLayout(m_ShadowLayout);
+		shadowPipeline.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None)
+			.setDepthBias(2)
+			.setSlopeScaleDepthBias(1.5f);
+		shadowPipeline.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(true).setDepthFunc(
+			nvrhi::ComparisonFunc::Less);
+		m_ShadowPipeline =
+			device->createGraphicsPipeline(shadowPipeline, m_ShadowFramebuffers[0]->getFramebufferInfo());
+		if (!m_VertexShader || !m_FragmentShader || !m_Layout || !m_Camera || !m_Bindings || !m_InputLayout ||
+			!m_ShadowBindings || !m_ShadowPipeline || !m_LinearSampler || !m_ShadowSampler)
 			throw std::runtime_error("World renderer resource initialization failed");
 	}
 
@@ -69,6 +150,15 @@ namespace Bellwether
 												  const std::vector<uint32_t>& indices)
 	{
 		Mesh result;
+		glm::vec3 minimum(vertices[0], vertices[1], vertices[2]), maximum = minimum;
+		for (size_t index = 0; index < vertices.size(); index += 8)
+		{
+			auto position = glm::vec3(vertices[index], vertices[index + 1], vertices[index + 2]);
+			minimum = glm::min(minimum, position);
+			maximum = glm::max(maximum, position);
+		}
+		result.BoundsCenter = (minimum + maximum) * .5f;
+		result.BoundsRadius = glm::length(maximum - minimum) * .5f;
 		result.IndexCount = static_cast<uint32_t>(indices.size());
 		result.Vertices = m_Device->createBuffer(nvrhi::BufferDesc()
 													 .setByteSize(vertices.size() * sizeof(float))
@@ -92,18 +182,21 @@ namespace Bellwether
 	void WorldRenderer::Load(const std::filesystem::path& directory)
 	{
 		auto manifest = ReadJson(directory / "world.json");
+		auto candidateSettings =
+			manifest.contains("Renderer") ? RenderSettings::Deserialize(manifest["Renderer"]) : RenderSettings{};
 		if (manifest.at("format") != 1)
 			throw std::runtime_error("Unsupported world bridge format");
-		std::vector<Mesh> meshes;
+		struct CPUMesh
+		{
+			std::vector<float> Vertices;
+			std::vector<uint32_t> Indices;
+		};
+		std::vector<CPUMesh> sourceMeshes;
 		std::vector<Instance> instances;
-		auto commands = m_Device->createCommandList();
-		commands->open();
 		for (const auto& entry : manifest.at("meshes"))
 		{
 			auto relative = std::filesystem::path(entry.at("path").get<std::string>());
-			if (relative.is_absolute() || relative.generic_string().find("..") != std::string::npos)
-				throw std::invalid_argument("Mesh paths must stay within the content directory");
-			auto data = ReadBinary(directory / relative);
+			auto data = ReadBinary(ResolveAssetPath(directory, relative));
 			if (data.size() < 8)
 				throw std::runtime_error("Truncated mesh header");
 			uint32_t vertexCount = 0, indexCount = 0;
@@ -122,7 +215,7 @@ namespace Bellwether
 			for (auto index : indices)
 				if (index >= vertexCount)
 					throw std::runtime_error("Mesh index out of range");
-			meshes.push_back(UploadMesh(commands, vertices, indices));
+			sourceMeshes.push_back({std::move(vertices), std::move(indices)});
 		}
 		for (const auto& entry : manifest.at("draws"))
 		{
@@ -132,7 +225,7 @@ namespace Bellwether
 			if (!entry.at("mesh").is_number_unsigned() && !entry.at("mesh").is_number_integer())
 				throw std::runtime_error("Mesh instance index must be integral");
 			instance.MeshIndex = entry.at("mesh");
-			if (instance.MeshIndex >= meshes.size() || entry.at("matrix").size() != 16)
+			if (instance.MeshIndex >= sourceMeshes.size() || entry.at("matrix").size() != 16)
 				throw std::runtime_error("Invalid mesh instance");
 			for (int column = 0; column < 4; column++)
 				for (int row = 0; row < 4; row++)
@@ -141,12 +234,21 @@ namespace Bellwether
 				for (int row = 0; row < 4; row++)
 					if (!std::isfinite(instance.Transform[column][row]))
 						throw std::runtime_error("Non-finite instance transform");
-			if (std::abs(glm::determinant(instance.Transform)) < 0.00000001f)
+			float determinant = glm::determinant(instance.Transform);
+			if (!std::isfinite(determinant) || std::abs(determinant) < 0.00000001f)
 				throw std::runtime_error("Singular instance transform");
+			if (instance.Transform[0][3] != 0 || instance.Transform[1][3] != 0 || instance.Transform[2][3] != 0 ||
+				instance.Transform[3][3] != 1)
+				throw std::runtime_error("Mesh transforms must be affine");
 			instance.AlbedoRoughness =
 				glm::vec4(ReadVector(Json::array({entry.at("color")[0], entry.at("color")[1], entry.at("color")[2]})),
 						  entry.at("roughness").get<float>());
 			instance.EmissionMetallic = glm::vec4(ReadVector(entry.at("emission")), entry.at("metallic").get<float>());
+			if (glm::any(glm::lessThan(glm::vec3(instance.AlbedoRoughness), glm::vec3(0))) ||
+				glm::any(glm::greaterThan(glm::vec3(instance.AlbedoRoughness), glm::vec3(1))) ||
+				glm::any(glm::lessThan(glm::vec3(instance.EmissionMetallic), glm::vec3(0))) ||
+				glm::any(glm::greaterThan(glm::vec3(instance.EmissionMetallic), glm::vec3(10000))))
+				throw std::runtime_error("Albedo must be in [0,1] and HDR emission in [0,10000]");
 			if (!std::isfinite(instance.AlbedoRoughness.w) || instance.AlbedoRoughness.w < 0 ||
 				instance.AlbedoRoughness.w > 1 || !std::isfinite(instance.EmissionMetallic.w) ||
 				instance.EmissionMetallic.w < 0 || instance.EmissionMetallic.w > 1)
@@ -155,7 +257,7 @@ namespace Bellwether
 		}
 		int size = manifest.at("height_size");
 		float extent = manifest.at("world_size");
-		auto heightBytes = ReadBinary(directory / "height.f32");
+		auto heightBytes = ReadBinary(ResolveAssetPath(directory, "height.f32"));
 		if (size < 2 || size > 8192 || heightBytes.size() != size_t(size) * size * 4 || !std::isfinite(extent) ||
 			extent <= 0)
 			throw std::runtime_error("Invalid heightfield");
@@ -190,63 +292,47 @@ namespace Bellwether
 							   {index, index + gridSize, index + 1, index + 1, index + gridSize, index + gridSize + 1});
 			}
 		Instance terrain;
-		terrain.MeshIndex = meshes.size();
+		terrain.MeshIndex = sourceMeshes.size();
 		terrain.AlbedoRoughness = {.85f, .91f, .98f, .85f};
-		meshes.push_back(UploadMesh(commands, vertices, indices));
+		sourceMeshes.push_back({std::move(vertices), std::move(indices)});
 		instances.push_back(terrain);
+		// Malformed files cannot leave an immediate GPU command list open. Only
+		// validated CPU data reaches this upload transaction.
+		std::vector<Mesh> meshes;
+		meshes.reserve(sourceMeshes.size());
+		auto commands = m_Device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+		commands->open();
+		for (const auto& source : sourceMeshes)
+			meshes.push_back(UploadMesh(commands, source.Vertices, source.Indices));
 		commands->close();
 		m_Device->executeCommandList(commands);
 		m_Device->waitForIdle();
 		m_Meshes = std::move(meshes);
 		m_Instances = std::move(instances);
+		m_Settings = candidateSettings;
 	}
 
-	void WorldRenderer::Render(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer, uint32_t width,
-							   uint32_t height)
+	void WorldRenderer::DrawGeometry(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer,
+									 nvrhi::IGraphicsPipeline* pipeline, nvrhi::IBindingSet* bindings, uint32_t width,
+									 uint32_t height, float range)
 	{
-		if (!width || !height)
-			throw std::invalid_argument("Render dimensions must be positive");
-		const auto& framebufferInfo = framebuffer->getFramebufferInfo();
-		if (framebufferInfo.colorFormats.size() != 1 || framebufferInfo.sampleCount != 1 ||
-			framebufferInfo.depthFormat == nvrhi::Format::UNKNOWN)
-			throw std::invalid_argument("World renderer requires one color target, one depth target and one sample");
-		auto format = std::make_pair(framebufferInfo.colorFormats[0], framebufferInfo.depthFormat);
-		if (!m_Pipelines.contains(format))
-		{
-			auto descriptor = nvrhi::GraphicsPipelineDesc()
-								  .setVertexShader(m_VertexShader)
-								  .setPixelShader(m_FragmentShader)
-								  .setInputLayout(m_InputLayout)
-								  .addBindingLayout(m_Layout);
-			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None);
-			descriptor.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(true).setDepthFunc(
-				nvrhi::ComparisonFunc::Less);
-			m_Pipelines[format] = m_Device->createGraphicsPipeline(descriptor, framebuffer->getFramebufferInfo());
-			if (!m_Pipelines[format])
-				throw std::runtime_error("World graphics pipeline creation failed");
-		}
-		struct CameraData
-		{
-			glm::mat4 ViewProjection;
-			glm::vec4 Position;
-		};
-		glm::vec3 target{0, 1, 10}, eye = target + glm::vec3(22, 30, 34);
-		float aspect = float(width) / height;
-		auto projection = glm::orthoRH_ZO(-12.f * aspect, 12.f * aspect, -12.f, 12.f, .1f, 400.f);
-		// NVRHI already inverts the Vulkan viewport height; retain a conventional projection.
-		CameraData camera{projection * glm::lookAtRH(eye, target, {0, 1, 0}), glm::vec4(eye, 1)};
-		commands->writeBuffer(m_Camera, &camera, sizeof(camera));
+		auto target = m_Settings.CameraTarget;
 		nvrhi::GraphicsState state;
-		state.setPipeline(m_Pipelines.at(format))
+		state.setPipeline(pipeline)
 			.setFramebuffer(framebuffer)
-			.addBindingSet(m_Bindings)
+			.addBindingSet(bindings)
 			.setViewport(
 				nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(float(width), float(height))));
 		for (const auto& instance : m_Instances)
 		{
-			if (glm::length(glm::vec2(instance.Transform[3].x - target.x, instance.Transform[3].z - target.z)) > 80)
-				continue;
 			const auto& mesh = m_Meshes[instance.MeshIndex];
+			auto center = glm::vec3(instance.Transform * glm::vec4(mesh.BoundsCenter, 1));
+			float scaleBound = std::sqrt(glm::dot(glm::vec3(instance.Transform[0]), glm::vec3(instance.Transform[0])) +
+										 glm::dot(glm::vec3(instance.Transform[1]), glm::vec3(instance.Transform[1])) +
+										 glm::dot(glm::vec3(instance.Transform[2]), glm::vec3(instance.Transform[2])));
+			if (glm::length(glm::vec2(center.x - target.x, center.z - target.z)) >
+				range + mesh.BoundsRadius * scaleBound)
+				continue;
 			state.vertexBuffers.resize(0);
 			state.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(mesh.Vertices).setSlot(0).setOffset(0));
 			state.setIndexBuffer(
@@ -263,6 +349,144 @@ namespace Bellwether
 			commands->setPushConstants(&object, sizeof(object));
 			commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
 		}
+	}
+
+	void WorldRenderer::ResizeTargets(uint32_t width, uint32_t height)
+	{
+		if (m_Width == width && m_Height == height)
+			return;
+		auto color = m_Device->createTexture(nvrhi::TextureDesc()
+												 .setWidth(width)
+												 .setHeight(height)
+												 .setFormat(nvrhi::Format::RGBA16_FLOAT)
+												 .setIsRenderTarget(true)
+												 .setInitialState(nvrhi::ResourceStates::ShaderResource)
+												 .setKeepInitialState(true)
+												 .setDebugName("Linear HDR"));
+		auto depth = m_Device->createTexture(nvrhi::TextureDesc()
+												 .setWidth(width)
+												 .setHeight(height)
+												 .setFormat(nvrhi::Format::D32)
+												 .setIsRenderTarget(true)
+												 .setInitialState(nvrhi::ResourceStates::DepthWrite)
+												 .setKeepInitialState(true)
+												 .setDebugName("HDR Depth"));
+		if (!color || !depth)
+			throw std::runtime_error("Cannot allocate HDR render targets");
+		auto framebuffer =
+			m_Device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(color).setDepthAttachment(depth));
+		auto bindings = m_Device->createBindingSet(nvrhi::BindingSetDesc()
+													   .addItem(nvrhi::BindingSetItem::Texture_SRV(0, color))
+													   .addItem(nvrhi::BindingSetItem::Sampler(0, m_LinearSampler))
+													   .addItem(nvrhi::BindingSetItem::PushConstants(0, 16)),
+												   m_PostLayout);
+		if (!framebuffer || !bindings)
+			throw std::runtime_error("Cannot bind HDR render targets");
+		auto lightingPipeline = m_LightingPipeline;
+		if (!lightingPipeline)
+		{
+			auto descriptor = nvrhi::GraphicsPipelineDesc()
+								  .setVertexShader(m_VertexShader)
+								  .setPixelShader(m_FragmentShader)
+								  .setInputLayout(m_InputLayout)
+								  .addBindingLayout(m_Layout);
+			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None);
+			descriptor.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(true).setDepthFunc(
+				nvrhi::ComparisonFunc::Less);
+			lightingPipeline = m_Device->createGraphicsPipeline(descriptor, framebuffer->getFramebufferInfo());
+			if (!lightingPipeline)
+				throw std::runtime_error("Cannot create HDR lighting pipeline");
+		}
+		m_HDR = color;
+		m_HDRDepth = depth;
+		m_HDRFramebuffer = framebuffer;
+		m_PostBindings = bindings;
+		m_LightingPipeline = lightingPipeline;
+		m_Width = width;
+		m_Height = height;
+	}
+
+	void WorldRenderer::Render(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer, uint32_t width,
+							   uint32_t height)
+	{
+		if (!commands || !framebuffer || !width || !height || width > 8192 || height > 8192)
+			throw std::invalid_argument("Render requires valid commands, framebuffer and dimensions up to 8192");
+		const auto& info = framebuffer->getFramebufferInfo();
+		if (info.colorFormats.size() != 1 || info.sampleCount != 1)
+			throw std::invalid_argument("Output requires one color target and one sample");
+		if (info.width != width || info.height != height)
+			throw std::invalid_argument("Output dimensions do not match the supplied framebuffer");
+		ResizeTargets(width, height);
+		auto format = std::make_pair(info.colorFormats[0], info.depthFormat);
+		if (!m_Pipelines.contains(format))
+		{
+			auto descriptor = nvrhi::GraphicsPipelineDesc()
+								  .setVertexShader(m_FullscreenShader)
+								  .setPixelShader(m_TonemapShader)
+								  .addBindingLayout(m_PostLayout);
+			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None);
+			descriptor.renderState.depthStencilState.setDepthTestEnable(false).setDepthWriteEnable(false);
+			auto pipeline = m_Device->createGraphicsPipeline(descriptor, info);
+			if (!pipeline)
+				throw std::runtime_error("Cannot create tone mapping pipeline");
+			m_Pipelines[format] = pipeline;
+		}
+		auto matrices = m_Settings.GetShadowMatrices(s_ShadowResolution);
+		FrameData frame{};
+		frame.LightViewProjection = matrices;
+		frame.CameraPosition = glm::vec4(m_Settings.GetCameraPosition(), 1);
+		frame.SunDirection = glm::vec4(glm::normalize(m_Settings.SunDirection), 0);
+		frame.SunRadianceFog = glm::vec4(m_Settings.SunRadiance, m_Settings.FogDensity);
+		frame.RenderParameters = glm::vec4(m_Settings.Shadows ? 1.f : 0.f, 0, 0, 0);
+		for (size_t cascade = 0; cascade < 2; cascade++)
+		{
+			// Always initialize the sampled maps, including when the lighting toggle is off.
+			commands->clearDepthStencilTexture(m_ShadowMaps[cascade], nvrhi::AllSubresources, true, 1, false, 0);
+			if (m_Settings.Shadows)
+			{
+				frame.ViewProjection = matrices[cascade];
+				commands->writeBuffer(m_Camera, &frame, sizeof(frame));
+				DrawGeometry(commands, m_ShadowFramebuffers[cascade], m_ShadowPipeline, m_ShadowBindings,
+							 s_ShadowResolution, s_ShadowResolution, cascade == 0 ? 70.f : 140.f);
+			}
+		}
+		frame.ViewProjection = m_Settings.GetViewProjection(float(width) / height);
+		commands->writeBuffer(m_Camera, &frame, sizeof(frame));
+		commands->clearTextureFloat(m_HDR, nvrhi::AllSubresources, nvrhi::Color(.055f, .09f, .14f, 1));
+		commands->clearDepthStencilTexture(m_HDRDepth, nvrhi::AllSubresources, true, 1, false, 0);
+		DrawGeometry(commands, m_HDRFramebuffer, m_LightingPipeline, m_Bindings, width, height,
+					 std::max(80.f, m_Settings.CameraSize * 2));
+		nvrhi::GraphicsState state;
+		state.setPipeline(m_Pipelines.at(format))
+			.setFramebuffer(framebuffer)
+			.addBindingSet(m_PostBindings)
+			.setViewport(
+				nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(float(width), float(height))));
+		commands->setGraphicsState(state);
+		glm::vec4 postSettings(m_Settings.Exposure, 0, 0, 0);
+		commands->setPushConstants(&postSettings, sizeof(postSettings));
+		commands->draw(nvrhi::DrawArguments().setVertexCount(3));
+	}
+
+	void WorldRenderer::SetSettings(const RenderSettings& settings)
+	{
+		settings.Validate();
+		m_Settings = settings;
+	}
+
+	const RenderSettings& WorldRenderer::GetSettings() const
+	{
+		return m_Settings;
+	}
+
+	nvrhi::ITexture* WorldRenderer::GetHDRTexture() const
+	{
+		return m_HDR;
+	}
+
+	nvrhi::ITexture* WorldRenderer::GetShadowTexture(size_t cascade) const
+	{
+		return m_ShadowMaps.at(cascade);
 	}
 
 } // namespace Bellwether

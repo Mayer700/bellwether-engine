@@ -1,5 +1,6 @@
 #include "VulkanContext.h"
 #include "WorldRenderer.h"
+#include "RendererVerification.h"
 
 #define GLFW_INCLUDE_NONE
 #include <vulkan/vulkan.hpp>
@@ -509,6 +510,22 @@ namespace Bellwether
 	void VulkanContext::Shutdown()
 	{
 		m_Implementation->Shutdown();
+	}
+
+	void VulkanContext::SetRenderSettings(const RenderSettings& settings)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load a world before applying render settings");
+		m_Implementation->World->SetSettings(settings);
+	}
+
+	void VulkanContext::VerifyRenderer(const std::filesystem::path& outputDirectory,
+									   const std::filesystem::path& fixtureDirectory)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load the renderer fixture before verification");
+		Bellwether::VerifyRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
+								   fixtureDirectory);
 	}
 
 } // namespace Bellwether

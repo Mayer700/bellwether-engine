@@ -1,4 +1,5 @@
 #pragma once
+#include "RenderSettings.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -45,13 +46,17 @@ namespace Bellwether
 		void Load(const std::filesystem::path& path);
 		void Save(const std::filesystem::path& path) const;
 		EntityID SpawnPrefab(const Json& prefab);
+		const RenderSettings& GetRenderSettings() const;
+		void SetRenderSettings(const RenderSettings& settings);
 
 	  private:
 		EntityID m_NextID = 1;
 		std::map<EntityID, Entity> m_Entities;
+		RenderSettings m_RenderSettings;
 	};
 
 	void AtomicWrite(const std::filesystem::path& path, const std::string& contents);
+	std::filesystem::path GetExecutableDirectory();
 	Json ReadJson(const std::filesystem::path& path);
 	glm::vec3 ReadVector(const Json& value);
 

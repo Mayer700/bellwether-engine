@@ -13,7 +13,7 @@
 - Run configure, compile and CTest. For graphics, also run a real Vulkan test with NVRHI validation, readback/capture and clean shutdown. Headless core tests do not prove rendering.
 - Register pending features in `Docs/ProductionPlan.md`; never make an unimplemented API return fake success. Unsupported behavior must produce a clear error.
 - Changes must receive a documented code review, fixes, and revalidation before commit. Stage explicit paths, inspect the staged diff, scan for credentials and generated files. Never commit secrets, player saves, binaries or vendor repositories.
-- Do not force push, rewrite remote history, overwrite another project or create substitute GitHub repositories. The requested remote is `https://github.com/TheCherno/AIGameEngine`; record access failure and continue locally if unavailable.
+- Do not force push, rewrite remote history or overwrite another project. The user authorized creating a new repository after the original destination was inaccessible. The private engine repository is `https://github.com/Mayer700/bellwether-engine`; publish only reviewed engine source, tests and documentation.
 - Windows, macOS and Ubuntu 24+ are required targets. A platform is verified only after its build and tests run there. CI configuration alone is not evidence. NVRHI upstream currently documents Windows/Linux; macOS/MoltenVK needs explicit compatibility work and verification.
 
 ## Agent authoring

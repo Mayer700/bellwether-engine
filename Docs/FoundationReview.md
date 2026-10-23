@@ -1,5 +1,7 @@
 # Foundation review
 
+Historical review of foundation commit `628adb5`. Later renderer work is reviewed in `RendererReview.md`; the pending-work description below reflects the foundation at that commit.
+
 Scope: C++ scene core, agent CLI, Lua API, Vulkan/NVRHI lifecycle, intermediate static-world rendering, dependency/bootstrap and current tests. This is a source review of the foundation, not approval of the unfinished engine as a production release.
 
 ## Findings addressed before commit

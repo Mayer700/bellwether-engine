@@ -4,6 +4,9 @@
 /Exports/
 /Evidence/*.ppm
 /Evidence/*.png
+/Evidence/**/*.png
+/Evidence/**/*.ppm
+/Evidence/**/InvalidAsset/
 /Evidence/TestScene.bwscene
 /Evidence/ConcurrentWrite.txt
 *.user

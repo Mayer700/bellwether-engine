@@ -21,10 +21,52 @@
 #else
 #include <fcntl.h>
 #include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 namespace Bellwether
 {
+	std::filesystem::path GetExecutableDirectory()
+	{
+#if defined(_WIN32)
+		for (size_t capacity = 512; capacity <= 65536; capacity *= 2)
+		{
+			std::wstring buffer(capacity, L'\0');
+			auto length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+			if (!length)
+				throw std::runtime_error("Cannot locate the engine executable");
+			if (length < buffer.size())
+			{
+				buffer.resize(length);
+				return std::filesystem::path(buffer).parent_path();
+			}
+		}
+#elif defined(__APPLE__)
+		uint32_t length = 0;
+		_NSGetExecutablePath(nullptr, &length);
+		if (!length || length > 65536)
+			throw std::runtime_error("Invalid executable path size");
+		std::string buffer(length, '\0');
+		if (_NSGetExecutablePath(buffer.data(), &length) == 0)
+			return std::filesystem::weakly_canonical(std::filesystem::path(buffer.c_str())).parent_path();
+#elif defined(__linux__)
+		for (size_t capacity = 512; capacity <= 65536; capacity *= 2)
+		{
+			std::string buffer(capacity, '\0');
+			auto length = readlink("/proc/self/exe", buffer.data(), buffer.size());
+			if (length < 0)
+				throw std::runtime_error("Cannot locate the engine executable");
+			if (static_cast<size_t>(length) < buffer.size())
+			{
+				buffer.resize(static_cast<size_t>(length));
+				return std::filesystem::path(buffer).parent_path();
+			}
+		}
+#endif
+		throw std::runtime_error("Engine executable path is unavailable or exceeds the supported length");
+	}
 
 	Json ReadJson(const std::filesystem::path& path)
 	{

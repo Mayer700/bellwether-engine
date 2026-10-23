@@ -5,7 +5,11 @@ layout(location=2) in vec2 a_TexCoord;
 layout(set=0,binding=256,std140) uniform CameraData
 {
     mat4 ViewProjection;
+    mat4 LightViewProjection[2];
     vec4 CameraPosition;
+    vec4 SunDirection;
+    vec4 SunRadianceFog;
+    vec4 RenderParameters;
 } u_Camera;
 layout(push_constant,std430) uniform ObjectData
 {

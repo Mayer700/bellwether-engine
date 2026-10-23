@@ -1,0 +1,354 @@
+{
+  "DateUTC": "2026-10-23T07:22:46.6470313Z",
+  "BaselineCommit": "628adb58ef4c8b8e303d4474d64049a993772148",
+  "Repository": "https://github.com/Mayer700/bellwether-engine",
+  "Private": true,
+  "Platform": "Windows; NVIDIA GeForce RTX 3070; Vulkan 1.3; GCC 16.1.0",
+  "Commands": [
+    "ctest --test-dir Engine/Build --output-on-failure",
+    "ctest --test-dir Engine/BuildRelease --output-on-failure",
+    "Tools/Validate.ps1 -GPU -WorldDirectory Cache/Bellwether",
+    "Relocated runtime: --gpu-test --renderer-test --world Engine/Build/FeatureWorld"
+  ],
+  "DebugCTest": {
+    "Passed": 3,
+    "Failed": 0,
+    "CoreAssertions": 72
+  },
+  "ReleaseCTest": {
+    "Passed": 3,
+    "Failed": 0,
+    "CoreAssertions": 72
+  },
+  "DebugRenderer": {
+    "Checks": [
+      {
+        "Name": "HDR readback retains radiance above one",
+        "Passed": true
+      },
+      {
+        "Name": "shadow toggle darkens geometry without adding light",
+        "Passed": true
+      },
+      {
+        "Name": "cube shadow reaches the analytically projected ground point",
+        "Passed": true
+      },
+      {
+        "Name": "unoccluded ground remains lit",
+        "Passed": true
+      },
+      {
+        "Name": "PCF produces a filtered shadow boundary",
+        "Passed": true
+      },
+      {
+        "Name": "exposure changes the post-process output",
+        "Passed": true
+      },
+      {
+        "Name": "exposure preserves linear HDR scene radiance",
+        "Passed": true
+      },
+      {
+        "Name": "GPU tone mapping matches HDR readback including image orientation",
+        "Passed": true
+      },
+      {
+        "Name": "HDR targets resize for a different aspect ratio",
+        "Passed": true
+      },
+      {
+        "Name": "large terrain bounds remain visible when the camera reaches the frontier",
+        "Passed": true
+      },
+      {
+        "Name": "out-of-range albedo rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "unrepresentable HDR emission rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "overflowing transform determinant rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-affine mesh transforms reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "mesh path traversal rejects before reading another location",
+        "Passed": true
+      },
+      {
+        "Name": "invalid asset renderer settings reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-finite mesh data rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "invalid mesh indices reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "truncated terrain rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "rendered world survives all rejected asset loads unchanged",
+        "Passed": true
+      }
+    ],
+    "Failed": 0,
+    "FilteredSamples": 3,
+    "GPUTimeMilliseconds": {
+      "NoShadows": 0.08515199273824692,
+      "Shadows": 0.3169279992580414
+    },
+    "HDRPeak": 5.796875,
+    "ShadowedPixels": 16151,
+    "TonemapMismatches": 0
+  },
+  "ReleaseRenderer": {
+    "Checks": [
+      {
+        "Name": "HDR readback retains radiance above one",
+        "Passed": true
+      },
+      {
+        "Name": "shadow toggle darkens geometry without adding light",
+        "Passed": true
+      },
+      {
+        "Name": "cube shadow reaches the analytically projected ground point",
+        "Passed": true
+      },
+      {
+        "Name": "unoccluded ground remains lit",
+        "Passed": true
+      },
+      {
+        "Name": "PCF produces a filtered shadow boundary",
+        "Passed": true
+      },
+      {
+        "Name": "exposure changes the post-process output",
+        "Passed": true
+      },
+      {
+        "Name": "exposure preserves linear HDR scene radiance",
+        "Passed": true
+      },
+      {
+        "Name": "GPU tone mapping matches HDR readback including image orientation",
+        "Passed": true
+      },
+      {
+        "Name": "HDR targets resize for a different aspect ratio",
+        "Passed": true
+      },
+      {
+        "Name": "large terrain bounds remain visible when the camera reaches the frontier",
+        "Passed": true
+      },
+      {
+        "Name": "out-of-range albedo rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "unrepresentable HDR emission rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "overflowing transform determinant rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-affine mesh transforms reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "mesh path traversal rejects before reading another location",
+        "Passed": true
+      },
+      {
+        "Name": "invalid asset renderer settings reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-finite mesh data rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "invalid mesh indices reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "truncated terrain rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "rendered world survives all rejected asset loads unchanged",
+        "Passed": true
+      }
+    ],
+    "Failed": 0,
+    "FilteredSamples": 3,
+    "GPUTimeMilliseconds": {
+      "NoShadows": 0.08511999249458313,
+      "Shadows": 0.3145599961280823
+    },
+    "HDRPeak": 5.796875,
+    "ShadowedPixels": 16151,
+    "TonemapMismatches": 0
+  },
+  "RelocatedRenderer": {
+    "Checks": [
+      {
+        "Name": "HDR readback retains radiance above one",
+        "Passed": true
+      },
+      {
+        "Name": "shadow toggle darkens geometry without adding light",
+        "Passed": true
+      },
+      {
+        "Name": "cube shadow reaches the analytically projected ground point",
+        "Passed": true
+      },
+      {
+        "Name": "unoccluded ground remains lit",
+        "Passed": true
+      },
+      {
+        "Name": "PCF produces a filtered shadow boundary",
+        "Passed": true
+      },
+      {
+        "Name": "exposure changes the post-process output",
+        "Passed": true
+      },
+      {
+        "Name": "exposure preserves linear HDR scene radiance",
+        "Passed": true
+      },
+      {
+        "Name": "GPU tone mapping matches HDR readback including image orientation",
+        "Passed": true
+      },
+      {
+        "Name": "HDR targets resize for a different aspect ratio",
+        "Passed": true
+      },
+      {
+        "Name": "large terrain bounds remain visible when the camera reaches the frontier",
+        "Passed": true
+      },
+      {
+        "Name": "out-of-range albedo rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "unrepresentable HDR emission rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "overflowing transform determinant rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-affine mesh transforms reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "mesh path traversal rejects before reading another location",
+        "Passed": true
+      },
+      {
+        "Name": "invalid asset renderer settings reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-finite mesh data rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "invalid mesh indices reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "truncated terrain rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "rendered world survives all rejected asset loads unchanged",
+        "Passed": true
+      }
+    ],
+    "Failed": 0,
+    "FilteredSamples": 3,
+    "GPUTimeMilliseconds": {
+      "NoShadows": 0.08345599472522736,
+      "Shadows": 0.3169599771499634
+    },
+    "HDRPeak": 5.796875,
+    "ShadowedPixels": 16151,
+    "TonemapMismatches": 0
+  },
+  "SourceWorld": {
+    "Placements": 5193,
+    "StaticNativePlacements": 4504,
+    "MeshResources": 1021,
+    "SkinnedActorsPorted": false
+  },
+  "LocalCaptures": [
+    "Evidence/Renderer/Before.png",
+    "Evidence/Renderer/After.png",
+    "Evidence/Renderer/Frontier.png"
+  ],
+  "Limits": [
+    "Fixture GPU times are isolated samples, not whole-game performance.",
+    "No Khronos validation-layer run.",
+    "Only Windows executed; macOS and Linux remain unverified.",
+    "No full game/editor/physics/audio/export parity; IBL, SSAO and textured animated glTF import pending."
+  ],
+  "SourceSHA256": {
+    "CMakeLists.txt": "40bae098416b9a547c153d1aeeadca03f0e6947e2db197d66796f436fd49c983",
+    "CMakePresets.json": "1e6e926df5db8a19a61dc12f7003297be8b9940f1b2cbb23c78261d5fe106c2b",
+    "Scenes/FeatureTest.bwscene": "bb19986dd465d6a13d44d58c9ad05c72b14a7d9d2fd870ee97a4f463db8abd79",
+    "Scenes/FeatureTest.lua": "0f1e625d401e1cc837ea0cab4ebafd0ee01c4f45013f5a6e335c65851d1098c0",
+    "Scenes/FeatureWorld.json": "57e6fe62bd2c9e7c832a0a331c9e9fe76a98b89daabee4c224a8bee0bc9a590e",
+    "Shaders/Fullscreen.vert": "6f90b54c63e8a5c1eaf39095d18b162a310fb881c5170d394ddc5b90c600b8c2",
+    "Shaders/Shadow.vert": "a5934ac6f3891f46290a3069f133dc959dc9a9322e48696bf1492065781f3794",
+    "Shaders/Tonemap.frag": "1e13d851aa70a94efec9a4dd3916d69fec38f65f51a7dbd426e505f8534b9ac5",
+    "Shaders/World.frag": "2861e0a6bbf4987e3a9887ce277dc69e7b39516b15cffa87e8b0f3b9e15fb828",
+    "Shaders/World.vert": "e2b8cb3002ced55d9c8fe2023142f884512b73f3693de26b8a17a98b14f49212",
+    "Source/AgentMain.cpp": "c357ffcfcb70b38b15a2b54658b277275504e8e1407021e49285f4c3d3bef3dc",
+    "Source/Bellwether/FileSystem.cpp": "aa47c92b960b7800e45b5bc2fe2870d816895c0d0c1615d5fe1b636338d9eda2",
+    "Source/Bellwether/RendererVerification.cpp": "35f859ce1bdbdc5ad5bd0429ee76dc97daee4c755c548c0020e0c41a4c445ae2",
+    "Source/Bellwether/RendererVerification.h": "b564ae27714b8288b40d96b7651ad53464f4c4d9f4dbc206cd23e5380ad78f9f",
+    "Source/Bellwether/RenderSettings.cpp": "30346fa9bdc4e30e0f70a87c9c2754f4b15debe2fe864c0c4ba8ae6a51d4cc90",
+    "Source/Bellwether/RenderSettings.h": "5e5007630d5f609c9adefc47109072f010d8defa52fbbfcea685444723665b77",
+    "Source/Bellwether/Scene.cpp": "a24fa6a35162cf06c44a264d86cee3db67d79a11d19c23a27c850a78e177761f",
+    "Source/Bellwether/Scene.h": "4c3683c7a29cbcf820efc791f6b176b728a03d5ce2c8bd731876b0add33a7609",
+    "Source/Bellwether/ScriptRuntime.cpp": "81c65fbada405e5ebf5c9bdefe54f6a1485d0c01c0d69c59d5ce9c3b26f24479",
+    "Source/Bellwether/ScriptRuntime.h": "0507c40d42ef49acea557cffc82bac88db1fb6c704db30091e14e1f2f702c487",
+    "Source/Bellwether/VulkanContext.cpp": "651a268dc945daf489e37c8040a0c6c23aea740edb4b2b69541d47728804a250",
+    "Source/Bellwether/VulkanContext.h": "07a5514c0ef16f5768f170508580ec512bdba9b2df54e01cc81e25a2335076fb",
+    "Source/Bellwether/WorldRenderer.cpp": "32e8bd89dcfc80880254e79709d9b374c6efeca2e77dd9bf1e072c6af5dd6690",
+    "Source/Bellwether/WorldRenderer.h": "cd7c1ec18ea4460d5b55fb9cb8e83af19409ea33d7be7e2cac687089ff578e2a",
+    "Source/EditorMain.cpp": "4a83332796343fdeb7cd977f1757723de8e69d5c2a1c8c841e177ce8b59c73aa",
+    "Source/RuntimeMain.cpp": "64dea31c464378d92b71986c81b0b91ab70a370df3c9dc0cc7c74111c7bd4a94",
+    "Tests/AgentTests.cmake": "d652272510edfa5ff0469c4d997de3fbb4f01e4f91b1b8dc2d585bcaac1f6d03",
+    "Tests/CoreTests.cpp": "417bc53849fff543824aa9d63dafc4d43b4f4746442301e623b83f67c3d94abb",
+    "Tools/BuildFeatureWorld.py": "ee6f64a3bf3b02e92d0c25a655fb32262988bd38b069f890c2a8cc9b93f17420",
+    "Tools/ConvertCapture.py": "58aa66c3d062a83bb024dde5f227f74cf2b5d0dff2d8c9bca090bd929e3d078a",
+    "Tools/ExportGodot.gd": "9af70367189a7750dacb9178c01fcba0e221cc528f7d6a431e332d19627a5c90",
+    "Tools/FetchDependency.cmake": "e2045862813a928efbf826862b443c8ad491006d6b5846c09afb19d5eb33dae3",
+    "Tools/Validate.ps1": "ae7093d68b30810d8780697cb6feef805a3e683f08d4217ac69fb79211d0765f"
+  }
+}

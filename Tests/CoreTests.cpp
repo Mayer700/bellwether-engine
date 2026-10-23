@@ -40,6 +40,11 @@ int main(int argumentCount, char** arguments)
 		if (argumentCount != 2)
 			throw std::invalid_argument("Tests require the project directory");
 		auto root = std::filesystem::path(arguments[1]);
+		auto executableDirectory = GetExecutableDirectory();
+		Check(
+			std::filesystem::is_directory(executableDirectory) &&
+				std::filesystem::is_regular_file(executableDirectory / std::filesystem::path(arguments[0]).filename()),
+			"executable resource root is independent of working directory");
 		Scene scene;
 		auto first = scene.CreateEntity("First");
 		Check(scene.Exists(first), "create and exists");
@@ -148,6 +153,51 @@ int main(int argumentCount, char** arguments)
 							  error),
 			  "sandbox restricts host access and budget interception");
 		Check(ScriptRuntime::GetAPI().size() == 8, "script API manifest");
+		RenderSettings renderSettings;
+		Check(RenderSettings::Deserialize(renderSettings.Serialize()).Serialize() == renderSettings.Serialize(),
+			  "renderer settings roundtrip");
+		Scene rendererScene;
+		rendererScene.ApplyCommands(Json::array(
+			{{{"Operation", "SetRendererSettings"}, {"Settings", {{"Exposure", 0.6}, {"Shadows", false}}}}}));
+		Check(rendererScene.GetRenderSettings().Exposure == 0.6f && !rendererScene.GetRenderSettings().Shadows,
+			  "agent renderer commands update actual settings");
+		rendererScene.ApplyCommands(
+			Json::array({{{"Operation", "SetRendererSettings"}, {"Settings", {{"Exposure", 0.8}}}}}));
+		Check(rendererScene.GetRenderSettings().Exposure == 0.8f && !rendererScene.GetRenderSettings().Shadows,
+			  "partial renderer commands preserve other scene preferences");
+		auto rendererCheckpoint = rendererScene.Serialize();
+		Rejects(
+			[&]
+			{
+				rendererScene.ApplyCommands(
+					Json::array({{{"Operation", "SetRendererSettings"}, {"Settings", {{"Exposure", 2}}}},
+								 {{"Operation", "SetRendererSettings"}, {"Settings", {{"Exposure", -1}}}}}));
+			},
+			"renderer command batch rejects invalid exposure");
+		Check(rendererScene.Serialize() == rendererCheckpoint, "renderer settings batch rolls back");
+		Scene rendererRestored;
+		rendererRestored.Deserialize(rendererCheckpoint);
+		Check(rendererRestored.GetRenderSettings().Serialize() == rendererScene.GetRenderSettings().Serialize(),
+			  "scene persists renderer settings");
+		for (const auto& settings :
+			 {Json{{"Exposure", 0}}, Json{{"Exposure", "one"}}, Json{{"Shadows", 1}}, Json{{"FogDensity", -1}},
+			  Json{{"CameraSize", 0}}, Json{{"SunDirection", {0, 0, 0}}}, Json{{"SunDirection", {0, -1, 0}}},
+			  Json{{"SunDirection", {1e38, 1e38, 0}}}, Json{{"SunDirection", {10000, .02, 0}}},
+			  Json{{"SunRadiance", {-1, 1, 1}}}, Json{{"Unknown", 1}}})
+			Rejects([&] { RenderSettings::Deserialize(settings); }, "invalid renderer property rejected");
+		Rejects([&] { renderSettings.GetViewProjection(0); }, "camera rejects zero aspect");
+		Rejects([&] { renderSettings.GetShadowMatrices(0); }, "shadow matrices reject invalid resolution");
+		auto clip = renderSettings.GetViewProjection(1.6f) * glm::vec4(renderSettings.CameraTarget, 1);
+		Check(std::abs(clip.x) < 0.00001f && std::abs(clip.y) < 0.00001f && clip.z > 0 && clip.z < 1,
+			  "camera target projects to visible Vulkan depth");
+		renderSettings.SunDirection = {0, 1, 0};
+		auto cascades = renderSettings.GetShadowMatrices(2048);
+		for (const auto& cascade : cascades)
+		{
+			auto center = cascade * glm::vec4(renderSettings.CameraTarget, 1);
+			Check(std::isfinite(center.x) && std::isfinite(center.y) && center.z > 0 && center.z < 1,
+				  "vertical sun produces finite visible cascade");
+		}
 		std::cout << "BELLWETHER_CORE " << s_Passed << " passed " << s_Failed << " failed\n";
 		return s_Failed ? 1 : 0;
 	}
