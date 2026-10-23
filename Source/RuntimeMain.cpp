@@ -7,9 +7,9 @@ int main(int argumentCount, char** arguments)
 {
 	try
 	{
-		bool test = false, rendererTest = false;
+		bool test = false, rendererTest = false, modelTest = false;
 		std::filesystem::path worldDirectory, readbackPath = "Readback.ppm", capturePath = "World.ppm";
-		std::filesystem::path settingsPath, scenePath;
+		std::filesystem::path settingsPath, scenePath, modelPath;
 		for (int index = 1; index < argumentCount; index++)
 		{
 			std::string option = arguments[index];
@@ -17,13 +17,17 @@ int main(int argumentCount, char** arguments)
 				test = true;
 			else if (option == "--renderer-test")
 				rendererTest = true;
+			else if (option == "--model-test")
+				modelTest = true;
 			else if (option == "--world" || option == "--readback" || option == "--capture" || option == "--settings" ||
-					 option == "--scene")
+					 option == "--scene" || option == "--gltf")
 			{
 				if (++index >= argumentCount)
 					throw std::invalid_argument("Missing value for " + option);
 				if (option == "--world")
 					worldDirectory = arguments[index];
+				else if (option == "--gltf")
+					modelPath = arguments[index];
 				else if (option == "--readback")
 					readbackPath = arguments[index];
 				else if (option == "--settings")
@@ -38,15 +42,23 @@ int main(int argumentCount, char** arguments)
 		}
 		if (rendererTest && (!test || worldDirectory.empty()))
 			throw std::invalid_argument("--renderer-test requires --gpu-test and the feature fixture --world");
+		if (modelTest && (!test || modelPath.empty()))
+			throw std::invalid_argument("--model-test requires --gpu-test and the model fixture --gltf");
 		if (!settingsPath.empty() && !scenePath.empty())
 			throw std::invalid_argument("Choose --settings or --scene for renderer configuration");
+		if (!modelPath.empty() && !worldDirectory.empty())
+			throw std::invalid_argument("Choose --world or --gltf for content");
 		Bellwether::VulkanContext context(960, 600, "Bellwether Engine | Runtime", test);
-		bool worldTest = !worldDirectory.empty();
-		if (worldTest)
+		bool worldTest = !worldDirectory.empty() || !modelPath.empty() || !scenePath.empty();
+		if (!worldDirectory.empty())
 			context.LoadWorld(worldDirectory);
+		if (!modelPath.empty())
+			context.LoadModel(modelPath);
+		if (!scenePath.empty() && modelPath.empty() && worldDirectory.empty())
+			context.LoadScene(scenePath);
 		if (!settingsPath.empty())
 			context.SetRenderSettings(Bellwether::RenderSettings::Deserialize(Bellwether::ReadJson(settingsPath)));
-		if (!scenePath.empty())
+		if (!scenePath.empty() && (!modelPath.empty() || !worldDirectory.empty()))
 		{
 			Bellwether::Scene scene;
 			scene.Load(scenePath);
@@ -71,6 +83,8 @@ int main(int argumentCount, char** arguments)
 				context.CaptureWorld(capturePath);
 			if (rendererTest)
 				context.VerifyRenderer(capturePath.parent_path() / "Renderer", worldDirectory);
+			if (modelTest)
+				context.VerifyModelRenderer(capturePath.parent_path() / "Models", modelPath.parent_path());
 			context.Shutdown();
 			if (!context.ShouldClose())
 				throw std::runtime_error("Shutdown did not close the context");

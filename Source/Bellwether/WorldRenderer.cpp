@@ -53,25 +53,44 @@ namespace Bellwether
 		m_VertexShader = shader("World.vert.spv", nvrhi::ShaderType::Vertex);
 		m_FragmentShader = shader("World.frag.spv", nvrhi::ShaderType::Pixel);
 		m_ShadowShader = shader("Shadow.vert.spv", nvrhi::ShaderType::Vertex);
+		m_ShadowFragmentShader = shader("Shadow.frag.spv", nvrhi::ShaderType::Pixel);
 		m_FullscreenShader = shader("Fullscreen.vert.spv", nvrhi::ShaderType::Vertex);
 		m_TonemapShader = shader("Tonemap.frag.spv", nvrhi::ShaderType::Pixel);
 		nvrhi::VertexAttributeDesc attributes[] = {nvrhi::VertexAttributeDesc()
 													   .setName("POSITION")
 													   .setFormat(nvrhi::Format::RGB32_FLOAT)
 													   .setOffset(0)
-													   .setElementStride(32),
+													   .setElementStride(64),
 												   nvrhi::VertexAttributeDesc()
 													   .setName("NORMAL")
 													   .setFormat(nvrhi::Format::RGB32_FLOAT)
 													   .setOffset(12)
-													   .setElementStride(32),
+													   .setElementStride(64),
 												   nvrhi::VertexAttributeDesc()
 													   .setName("TEXCOORD")
 													   .setFormat(nvrhi::Format::RG32_FLOAT)
 													   .setOffset(24)
-													   .setElementStride(32)};
-		m_InputLayout = device->createInputLayout(attributes, 3, m_VertexShader);
+													   .setElementStride(64),
+												   nvrhi::VertexAttributeDesc()
+													   .setName("TANGENT")
+													   .setFormat(nvrhi::Format::RGBA32_FLOAT)
+													   .setOffset(32)
+													   .setElementStride(64),
+												   nvrhi::VertexAttributeDesc()
+													   .setName("COLOR")
+													   .setFormat(nvrhi::Format::RGBA32_FLOAT)
+													   .setOffset(48)
+													   .setElementStride(64)};
+		m_InputLayout = device->createInputLayout(attributes, 5, m_VertexShader);
+		auto materialLayout =
+			nvrhi::BindingLayoutDesc().setVisibility(nvrhi::ShaderType::Pixel).setRegisterSpaceAndDescriptorSet(1);
+		materialLayout.addItem(nvrhi::BindingLayoutItem::ConstantBuffer(0));
+		for (uint32_t slot = 0; slot < 5; slot++)
+			materialLayout.addItem(nvrhi::BindingLayoutItem::Texture_SRV(slot))
+				.addItem(nvrhi::BindingLayoutItem::Sampler(slot));
+		m_MaterialLayout = device->createBindingLayout(materialLayout);
 		m_Layout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
+												   .setRegisterSpaceAndDescriptorSet(0)
 												   .setVisibility(nvrhi::ShaderType::All)
 												   .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
 												   .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96))
@@ -79,10 +98,12 @@ namespace Bellwether
 												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
 												   .addItem(nvrhi::BindingLayoutItem::Sampler(0)));
 		m_ShadowLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
+														 .setRegisterSpaceAndDescriptorSet(0)
 														 .setVisibility(nvrhi::ShaderType::Vertex)
 														 .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
 														 .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96)));
 		m_PostLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
+													   .setRegisterSpaceAndDescriptorSet(0)
 													   .setVisibility(nvrhi::ShaderType::All)
 													   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
 													   .addItem(nvrhi::BindingLayoutItem::Sampler(0))
@@ -99,8 +120,8 @@ namespace Bellwether
 													.setBorderColor(nvrhi::Color(1)));
 		m_LinearSampler = device->createSampler(
 			nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
-		if (!m_InputLayout || !m_Layout || !m_ShadowLayout || !m_PostLayout || !m_Camera || !m_ShadowSampler ||
-			!m_LinearSampler)
+		if (!m_InputLayout || !m_Layout || !m_MaterialLayout || !m_ShadowLayout || !m_PostLayout || !m_Camera ||
+			!m_ShadowSampler || !m_LinearSampler)
 			throw std::runtime_error("Cannot create renderer layouts, frame data or samplers");
 		for (size_t index = 0; index < 2; index++)
 		{
@@ -132,9 +153,12 @@ namespace Bellwether
 													m_ShadowLayout);
 		auto shadowPipeline = nvrhi::GraphicsPipelineDesc()
 								  .setVertexShader(m_ShadowShader)
+								  .setPixelShader(m_ShadowFragmentShader)
 								  .setInputLayout(m_InputLayout)
-								  .addBindingLayout(m_ShadowLayout);
+								  .addBindingLayout(m_ShadowLayout)
+								  .addBindingLayout(m_MaterialLayout);
 		shadowPipeline.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None)
+			.setFrontCounterClockwise(true)
 			.setDepthBias(2)
 			.setSlopeScaleDepthBias(1.5f);
 		shadowPipeline.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(true).setDepthFunc(
@@ -149,11 +173,28 @@ namespace Bellwether
 	WorldRenderer::Mesh WorldRenderer::UploadMesh(nvrhi::ICommandList* commands, const std::vector<float>& vertices,
 												  const std::vector<uint32_t>& indices)
 	{
-		Mesh result;
-		glm::vec3 minimum(vertices[0], vertices[1], vertices[2]), maximum = minimum;
+		std::vector<ModelVertex> converted;
+		converted.reserve(vertices.size() / 8);
 		for (size_t index = 0; index < vertices.size(); index += 8)
 		{
-			auto position = glm::vec3(vertices[index], vertices[index + 1], vertices[index + 2]);
+			ModelVertex vertex;
+			vertex.Position = {vertices[index], vertices[index + 1], vertices[index + 2]};
+			vertex.Normal = {vertices[index + 3], vertices[index + 4], vertices[index + 5]};
+			vertex.TexCoord = {vertices[index + 6], vertices[index + 7]};
+			converted.push_back(vertex);
+		}
+		return UploadMesh(commands, converted, indices);
+	}
+
+	WorldRenderer::Mesh WorldRenderer::UploadMesh(nvrhi::ICommandList* commands,
+												  const std::vector<ModelVertex>& vertices,
+												  const std::vector<uint32_t>& indices)
+	{
+		Mesh result;
+		glm::vec3 minimum = vertices.at(0).Position, maximum = minimum;
+		for (const auto& vertex : vertices)
+		{
+			auto position = vertex.Position;
 			minimum = glm::min(minimum, position);
 			maximum = glm::max(maximum, position);
 		}
@@ -161,7 +202,7 @@ namespace Bellwether
 		result.BoundsRadius = glm::length(maximum - minimum) * .5f;
 		result.IndexCount = static_cast<uint32_t>(indices.size());
 		result.Vertices = m_Device->createBuffer(nvrhi::BufferDesc()
-													 .setByteSize(vertices.size() * sizeof(float))
+													 .setByteSize(vertices.size() * sizeof(ModelVertex))
 													 .setIsVertexBuffer(true)
 													 .setInitialState(nvrhi::ResourceStates::VertexBuffer)
 													 .setKeepInitialState(true)
@@ -174,7 +215,7 @@ namespace Bellwether
 													.setDebugName("World Indices"));
 		if (!result.Vertices || !result.Indices)
 			throw std::runtime_error("Cannot allocate mesh buffers");
-		commands->writeBuffer(result.Vertices, vertices.data(), vertices.size() * sizeof(float));
+		commands->writeBuffer(result.Vertices, vertices.data(), vertices.size() * sizeof(ModelVertex));
 		commands->writeBuffer(result.Indices, indices.data(), indices.size() * sizeof(uint32_t));
 		return result;
 	}
@@ -212,6 +253,13 @@ namespace Bellwether
 			for (auto value : vertices)
 				if (!std::isfinite(value))
 					throw std::runtime_error("Non-finite mesh vertex data");
+			for (size_t vertex = 0; vertex < vertices.size(); vertex += 8)
+			{
+				auto normal = glm::vec3(vertices[vertex + 3], vertices[vertex + 4], vertices[vertex + 5]);
+				float lengthSquared = glm::dot(normal, normal);
+				if (!std::isfinite(lengthSquared) || lengthSquared < 1e-12f)
+					throw std::runtime_error("Invalid mesh normal");
+			}
 			for (auto index : indices)
 				if (index >= vertexCount)
 					throw std::runtime_error("Mesh index out of range");
@@ -304,11 +352,18 @@ namespace Bellwether
 		commands->open();
 		for (const auto& source : sourceMeshes)
 			meshes.push_back(UploadMesh(commands, source.Vertices, source.Indices));
+		ModelAsset legacy;
+		legacy.Materials.emplace_back();
+		legacy.Materials[0].DoubleSided = true;
+		auto materials = UploadMaterials(commands, legacy, true);
 		commands->close();
 		m_Device->executeCommandList(commands);
-		m_Device->waitForIdle();
+		if (!m_Device->waitForIdle())
+			throw std::runtime_error("Graphics device lost while completing world upload");
 		m_Meshes = std::move(meshes);
 		m_Instances = std::move(instances);
+		m_Materials = std::move(materials.Materials);
+		m_MaterialSamplerCount = materials.SamplerCount;
 		m_Settings = candidateSettings;
 	}
 
@@ -337,6 +392,8 @@ namespace Bellwether
 			state.addVertexBuffer(nvrhi::VertexBufferBinding().setBuffer(mesh.Vertices).setSlot(0).setOffset(0));
 			state.setIndexBuffer(
 				nvrhi::IndexBufferBinding().setBuffer(mesh.Indices).setFormat(nvrhi::Format::R32_UINT).setOffset(0));
+			state.bindings.resize(1);
+			state.addBindingSet(m_Materials.at(instance.MaterialIndex).Bindings);
 			commands->setGraphicsState(state);
 			struct ObjectData
 			{
@@ -389,8 +446,9 @@ namespace Bellwether
 								  .setVertexShader(m_VertexShader)
 								  .setPixelShader(m_FragmentShader)
 								  .setInputLayout(m_InputLayout)
-								  .addBindingLayout(m_Layout);
-			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None);
+								  .addBindingLayout(m_Layout)
+								  .addBindingLayout(m_MaterialLayout);
+			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None).setFrontCounterClockwise(true);
 			descriptor.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(true).setDepthFunc(
 				nvrhi::ComparisonFunc::Less);
 			lightingPipeline = m_Device->createGraphicsPipeline(descriptor, framebuffer->getFramebufferInfo());

@@ -20,6 +20,8 @@ namespace Bellwether
 		void Resize(int width, int height);
 		void VerifyReadback(const std::filesystem::path& output);
 		void LoadWorld(const std::filesystem::path& directory);
+		void LoadModel(const std::filesystem::path& path);
+		void LoadScene(const std::filesystem::path& path);
 		void CaptureWorld(const std::filesystem::path& output);
 		std::string GetDeviceName() const;
 		unsigned GetValidationErrors() const;
@@ -27,6 +29,8 @@ namespace Bellwether
 		void SetRenderSettings(const RenderSettings& settings);
 		void VerifyRenderer(const std::filesystem::path& outputDirectory,
 							const std::filesystem::path& fixtureDirectory);
+		void VerifyModelRenderer(const std::filesystem::path& outputDirectory,
+								 const std::filesystem::path& fixtureDirectory);
 
 	  private:
 		class Implementation;

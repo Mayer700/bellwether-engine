@@ -29,6 +29,7 @@ namespace Bellwether
 		std::string Name;
 		TransformComponent Transform;
 		std::string Script;
+		std::string ModelAsset;
 	};
 
 	class Scene
@@ -59,5 +60,6 @@ namespace Bellwether
 	std::filesystem::path GetExecutableDirectory();
 	Json ReadJson(const std::filesystem::path& path);
 	glm::vec3 ReadVector(const Json& value);
+	void ValidateModelAssetPath(const std::string& asset);
 
 } // namespace Bellwether

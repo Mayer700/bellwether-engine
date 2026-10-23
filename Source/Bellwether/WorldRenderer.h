@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Scene.h"
+#include "GltfImporter.h"
 #include <nvrhi/nvrhi.h>
 
 namespace Bellwether
@@ -11,6 +12,8 @@ namespace Bellwether
 	  public:
 		explicit WorldRenderer(nvrhi::IDevice* device);
 		void Load(const std::filesystem::path& directory);
+		void LoadModel(const std::filesystem::path& path);
+		void LoadScene(const Scene& scene, const std::filesystem::path& assetRoot);
 		void Render(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer, uint32_t width, uint32_t height);
 		void SetSettings(const RenderSettings& settings);
 		const RenderSettings& GetSettings() const;
@@ -19,6 +22,18 @@ namespace Bellwether
 		size_t GetDrawCount() const
 		{
 			return m_Instances.size();
+		}
+		size_t GetMeshCount() const
+		{
+			return m_Meshes.size();
+		}
+		size_t GetMaterialSamplerCount() const
+		{
+			return m_MaterialSamplerCount;
+		}
+		size_t GetMaterialCount() const
+		{
+			return m_Materials.size();
 		}
 
 	  private:
@@ -33,11 +48,27 @@ namespace Bellwether
 		struct Instance
 		{
 			size_t MeshIndex = 0;
+			size_t MaterialIndex = 0;
 			glm::mat4 Transform{1};
 			glm::vec4 AlbedoRoughness{1};
 			glm::vec4 EmissionMetallic{0};
 		};
+		struct Material
+		{
+			nvrhi::BufferHandle Constants;
+			nvrhi::BindingSetHandle Bindings;
+		};
+		struct MaterialUpload
+		{
+			std::vector<Material> Materials;
+			size_t SamplerCount = 0;
+		};
+		MaterialUpload UploadMaterials(nvrhi::ICommandList* commands, const ModelAsset& asset,
+									   bool legacyColors = false);
+		void UploadModel(const ModelAsset& asset);
 		Mesh UploadMesh(nvrhi::ICommandList* commands, const std::vector<float>& vertices,
+						const std::vector<uint32_t>& indices);
+		Mesh UploadMesh(nvrhi::ICommandList* commands, const std::vector<ModelVertex>& vertices,
 						const std::vector<uint32_t>& indices);
 		void ResizeTargets(uint32_t width, uint32_t height);
 		void DrawGeometry(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer,
@@ -55,11 +86,12 @@ namespace Bellwether
 		nvrhi::IDevice* m_Device;
 		nvrhi::ShaderHandle m_VertexShader, m_FragmentShader;
 		nvrhi::BindingLayoutHandle m_Layout;
+		nvrhi::BindingLayoutHandle m_MaterialLayout;
 		nvrhi::BindingSetHandle m_Bindings;
 		nvrhi::InputLayoutHandle m_InputLayout;
 		nvrhi::BufferHandle m_Camera;
 		std::map<std::pair<nvrhi::Format, nvrhi::Format>, nvrhi::GraphicsPipelineHandle> m_Pipelines;
-		nvrhi::ShaderHandle m_ShadowShader, m_FullscreenShader, m_TonemapShader;
+		nvrhi::ShaderHandle m_ShadowShader, m_ShadowFragmentShader, m_FullscreenShader, m_TonemapShader;
 		nvrhi::BindingLayoutHandle m_ShadowLayout, m_PostLayout;
 		nvrhi::BindingSetHandle m_ShadowBindings, m_PostBindings;
 		nvrhi::GraphicsPipelineHandle m_ShadowPipeline, m_LightingPipeline;
@@ -73,6 +105,8 @@ namespace Bellwether
 		RenderSettings m_Settings;
 		std::vector<Mesh> m_Meshes;
 		std::vector<Instance> m_Instances;
+		std::vector<Material> m_Materials;
+		size_t m_MaterialSamplerCount = 0;
 	};
 
 } // namespace Bellwether

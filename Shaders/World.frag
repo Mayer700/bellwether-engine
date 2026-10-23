@@ -1,6 +1,9 @@
 #version 450
 layout(location=0) in vec3 v_WorldPosition;
 layout(location=1) in vec3 v_Normal;
+layout(location=2) in vec2 v_TexCoord;
+layout(location=3) in vec4 v_Tangent;
+layout(location=4) in vec4 v_Color;
 layout(location=0) out vec4 o_Color;
 layout(set=0,binding=256,std140) uniform CameraData
 {
@@ -17,6 +20,17 @@ layout(push_constant,std430) uniform ObjectData
     vec4 AlbedoRoughness;
     vec4 EmissionMetallic;
 } u_Object;
+layout(set=1,binding=256,std140) uniform MaterialData { vec4 Parameters; vec4 Coverage; } u_Material;
+layout(set=1,binding=0) uniform texture2D u_BaseColor;
+layout(set=1,binding=1) uniform texture2D u_MetalRough;
+layout(set=1,binding=2) uniform texture2D u_NormalMap;
+layout(set=1,binding=3) uniform texture2D u_Occlusion;
+layout(set=1,binding=4) uniform texture2D u_Emissive;
+layout(set=1,binding=128) uniform sampler u_BaseSampler;
+layout(set=1,binding=129) uniform sampler u_MetalSampler;
+layout(set=1,binding=130) uniform sampler u_NormalSampler;
+layout(set=1,binding=131) uniform sampler u_OcclusionSampler;
+layout(set=1,binding=132) uniform sampler u_EmissiveSampler;
 const float Pi = 3.14159265359;
 layout(set=0,binding=0) uniform texture2D u_ShadowNear;
 layout(set=0,binding=1) uniform texture2D u_ShadowFar;
@@ -49,26 +63,45 @@ float SunVisibility(vec3 position,vec3 normal)
 }
 void main()
 {
-    vec3 albedo = pow(u_Object.AlbedoRoughness.rgb, vec3(2.2));
+    bool front = gl_FrontFacing != (determinant(mat3(u_Object.Transform)) < 0.);
+    if(u_Material.Coverage.z < .5 && !front)
+        discard;
+    vec4 base = texture(sampler2D(u_BaseColor,u_BaseSampler),v_TexCoord)*v_Color;
+    if(u_Material.Coverage.y > .5 && base.a*u_Material.Coverage.x < u_Material.Parameters.z)
+        discard;
+    vec3 factor = u_Material.Coverage.w > .5 ? pow(u_Object.AlbedoRoughness.rgb,vec3(2.2)) : u_Object.AlbedoRoughness.rgb;
+    vec3 albedo = factor*base.rgb;
     vec3 normal = normalize(v_Normal);
+    if(u_Material.Parameters.w > .5)
+    {
+        vec3 tangent = normalize(v_Tangent.xyz-normal*dot(normal,v_Tangent.xyz));
+        vec3 bitangent = v_Tangent.w*cross(normal,tangent);
+        vec3 mapped = texture(sampler2D(u_NormalMap,u_NormalSampler),v_TexCoord).xyz*2.-1.;
+        mapped.xy *= u_Material.Parameters.x;
+        normal = normalize(mat3(tangent,bitangent,normal)*mapped);
+    }
+    if(u_Material.Coverage.z > .5 && u_Material.Coverage.w < .5 && !front)
+        normal = -normal;
     vec3 viewDirection = normalize(u_Camera.CameraPosition.xyz-v_WorldPosition);
     vec3 lightDirection = normalize(u_Camera.SunDirection.xyz);
     vec3 halfwayDirection = normalize(lightDirection+viewDirection);
     float normalLight = max(dot(normal,lightDirection),0.);
     float normalView = max(dot(normal,viewDirection),.001);
     float normalHalfway = max(dot(normal,halfwayDirection),0.);
-    float roughness = max(.15,u_Object.AlbedoRoughness.a);
+    vec4 metalRough = texture(sampler2D(u_MetalRough,u_MetalSampler),v_TexCoord);
+    float roughness = max(.045,u_Object.AlbedoRoughness.a*metalRough.g);
     float alphaSquared = pow(roughness,4.);
     float distribution = alphaSquared / (Pi*pow(normalHalfway*normalHalfway*(alphaSquared-1.)+1.,2.)+.00001);
     float geometryK = pow(roughness+1.,2.)/8.;
     float geometry = normalLight/(normalLight*(1.-geometryK)+geometryK)*normalView/(normalView*(1.-geometryK)+geometryK);
-    float metallic = u_Object.EmissionMetallic.a;
+    float metallic = u_Object.EmissionMetallic.a*metalRough.b;
     vec3 reflection = mix(vec3(.04),albedo,metallic);
     vec3 fresnel = reflection+(1.-reflection)*pow(1.-max(dot(halfwayDirection,viewDirection),0.),5.);
     vec3 specular = distribution*geometry*fresnel/(4.*normalLight*normalView+.001);
     vec3 ambient = albedo*mix(vec3(.10,.15,.23),vec3(.32,.43,.59),normal.y*.5+.5);
+    ambient *= mix(1.,texture(sampler2D(u_Occlusion,u_OcclusionSampler),v_TexCoord).r,u_Material.Parameters.y);
     vec3 color = ambient+((1.-fresnel)*(1.-metallic)*albedo/Pi+specular)*u_Camera.SunRadianceFog.rgb*normalLight*SunVisibility(v_WorldPosition,normal);
-    color += u_Object.EmissionMetallic.rgb;
+    color += u_Object.EmissionMetallic.rgb*texture(sampler2D(u_Emissive,u_EmissiveSampler),v_TexCoord).rgb;
     float fog = 1.-exp(-length(u_Camera.CameraPosition.xyz-v_WorldPosition)*u_Camera.SunRadianceFog.w);
     color = mix(color,vec3(.25,.36,.5),fog);
     o_Color = vec4(color,1.);

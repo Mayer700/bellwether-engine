@@ -2,7 +2,7 @@
 
 The renderer now performs three explicit stages: two depth-only sun coverage passes, a linear HDR scene pass, and a full-screen exposure/tone-mapping pass. This is implemented pass orchestration, not yet a general render-graph editor.
 
-The scene target is RGBA16_FLOAT with a D32 depth buffer. Two 2048-square D32 shadow maps cover 48 and 180 metres around the camera target. Coverage blends near the inner map's edge. Light-space texel snapping stabilizes camera movement. A 5x5 PCF kernel filters shadow boundaries; this is a fixed filter, not physically varying area-light penumbrae. GGX direct-light shading, hemisphere ambient and distance haze remain the lighting model. Texture materials, HDRI IBL, SSAO, animated import, local lights and a complete sky/environment are not implemented yet.
+The scene target is RGBA16_FLOAT with a D32 depth buffer. Two 2048-square D32 shadow maps cover 48 and 180 metres around the camera target. Coverage blends near the inner map's edge. Light-space texel snapping stabilizes camera movement. A 5x5 PCF kernel filters shadow boundaries; this is a fixed filter, not physically varying area-light penumbrae. GGX direct lighting, hemisphere ambient and distance haze remain the lighting model. [Static glTF materials](Models.md) now provide PBR textures and matching alpha-cutout shadows. HDRI IBL, SSAO, animated import, local lights and a complete sky/environment remain pending.
 
 ## Scene and agent controls
 
@@ -22,7 +22,7 @@ The scene target is RGBA16_FLOAT with a D32 depth buffer. Two 2048-square D32 sh
 ]
 ```
 
-Run the resulting scene preferences with `BellwetherRuntime --world Cache/Bellwether --scene Project.bwscene`. For a separate settings object, use `--settings RenderSettings.json`. Runtime entity rendering and renderer Lua bindings remain future work; the existing eight Lua APIs retain their prior behavior.
+Run scene preferences on bridge content with `BellwetherRuntime --world Cache/Bellwether --scene Project.bwscene`. `--scene Project.bwscene` alone renders authored model entities. For separate preferences, use `--settings RenderSettings.json`. Renderer Lua bindings remain future work; the existing eight Lua APIs retain their behavior.
 
 ## Verification
 

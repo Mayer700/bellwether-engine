@@ -24,7 +24,7 @@ cmake --build --preset core
 ctest --preset core
 ```
 
-The native build produces `BellwetherAgent`, `BellwetherRuntime`, `BellwetherEditor` and `BellwetherTests`. The editor is currently a window/device shell; authoring panels and gizmos are pending. The runtime is a renderer test host, not the survival game port.
+The native build produces the agent, editor, runtime, core tests, asset tests and physics tests. The editor is currently a window/device shell; authoring panels and gizmos are pending. The runtime previews static worlds and authored model scenes; the survival game port is not yet playable.
 
 The test scene and Lua API exercise are in `Scenes/FeatureTest.bwscene` and `Scenes/FeatureTest.lua`. The GPU fixture is `Scenes/FeatureWorld.json`; the build converts its original test geometry into the renderer's intermediate mesh format. The Vulkan replay presents frames, resizes, renders the fixture and checks GPU readback and NVRHI diagnostics. These tests do not replace future physics, glTF, sound and full-game scenarios.
 
@@ -37,7 +37,9 @@ BellwetherAgent apply Project.bwscene Commands.json
 BellwetherAgent validate Project.bwscene
 ```
 
-`apply` accepts an array of `Create`, `Destroy`, `Rename` and `SetTransform` commands. It validates the entire batch and replaces the scene file only after success. Responses are JSON. Stable entity IDs are preserved. Unsupported fields/components/commands produce errors instead of being discarded. Lua exposes eight currently tested entity/prefab/position methods and `OnUpdate(timestep)`; per-entity script components and the wider physics/render/audio API are still pending.
+`apply` accepts `Create`, `Destroy`, `Rename`, `SetTransform`, `SetModel` and `SetRendererSettings` command arrays. The entire batch validates before replacing the scene file. Responses are JSON and entity IDs remain stable. Unsupported fields/components/commands reject. Lua exposes eight tested entity/prefab/position methods and `OnUpdate(timestep)`; component lifecycle and the wider physics/render/audio API remain pending.
+
+Static glTF/GLB assets can be validated with `BellwetherAgent inspect-model Models/Cabin.glb`, previewed with `BellwetherRuntime --gltf Models/Cabin.glb --settings Camera.json`, or attached to entities through `Model: {"Asset": "Models/Cabin.glb"}`. `BellwetherRuntime --scene Village.bwscene` resolves models relative to that scene, shares geometry and composes transforms. See [model import and materials](Docs/Models.md) for supported PBR texture roles, diagnostics and limits. The copied build `FeatureTest.bwscene` resolves its generated model fixture.
 
 ## Render the existing game world
 
@@ -54,8 +56,10 @@ This read-only bridge resolves the original scene into `Engine/Cache/Bellwether`
 py -3 Tools/ConvertCapture.py Evidence/World.ppm Evidence/World.png
 ```
 
-The game content is not bundled into the engine repository. The bridge exports geometry, transforms, material constants, terrain and gameplay metadata. The current native renderer displays the static world; it does not yet run its actors, interactions, snow compression or chapter. Lighting now renders into a linear RGBA16_FLOAT target, with two filtered sun-shadow maps and a separate exposure/tone-mapping pass. HDRI IBL, SSAO, textures and animated glTF import remain required work. See [renderer verification](Docs/Renderer.md) for the exact scope, controls and limits.
+The game content is not bundled into the engine repository. The bridge exports geometry, transforms, material constants, terrain and gameplay metadata. The native renderer displays the static world; actors, interactions, snow compression and chapter logic remain unported. Lighting uses linear RGBA16_FLOAT, two filtered sun-shadow maps and separate exposure/tone mapping. Direct static glTF import now supports textured PBR materials; HDRI IBL, SSAO and animated import remain required. See [renderer verification](Docs/Renderer.md) for scope and limits.
 
-Renderer preferences can be authored through `SetRendererSettings` agent commands and saved in a `.bwscene`. Run `BellwetherRuntime --world Cache/Bellwether --scene Project.bwscene` to preview those renderer preferences. This currently consumes the scene's renderer settings; rendering its entity components remains pending. `--settings RenderSettings.json` accepts a standalone settings object instead. Shaders load from a `Shaders/` directory beside the executable, and this resource lookup has been tested after relocating the runtime.
+Renderer preferences are authored with `SetRendererSettings` and persisted in `.bwscene`. Combining `--world` or `--gltf` with `--scene` applies only that scene's renderer settings to the explicit content source. Using `--scene` alone renders its model entities. `--settings RenderSettings.json` accepts standalone preferences. Shaders load from `Shaders/` beside the executable, tested after runtime relocation.
+
+A Jolt-backed [physics foundation](Docs/Physics.md) supplies fixed-step rigid bodies, collision filters and ray queries. Scene components, Lua bindings, character control and gameplay integration remain required work.
 
 Windows Debug and Release core and native GPU checks have run locally. The private source repository is [Mayer700/bellwether-engine](https://github.com/Mayer700/bellwether-engine). CI contains core build/test jobs for Windows, macOS and Ubuntu 24.04; remote results must be checked separately. macOS Vulkan/NVRHI compatibility is unverified.

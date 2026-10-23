@@ -122,8 +122,138 @@ int main(int argumentCount, char** arguments)
 		Check(scene.GetEntity(second).Transform.Translation == glm::vec3(7, 8, 9) &&
 				  scene.GetEntity(second).Transform.Scale == glm::vec3(2, 3, 4),
 			  "agent transform changes complete component");
+		Scene modelScene;
+		auto modelID = modelScene.CreateEntity("Editable glTF model");
+		Check(!modelScene.Serialize()["Entities"][0].contains("Model"), "legacy entity omits absent model component");
+		modelScene.ApplyCommands(
+			Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", "ModelFixtures/Materials.glb"}}}));
+		auto modelCheckpoint = modelScene.Serialize();
+		Check(modelScene.GetEntity(modelID).ModelAsset == "ModelFixtures/Materials.glb" &&
+				  modelCheckpoint["Entities"][0]["Model"]["Asset"] == "ModelFixtures/Materials.glb",
+			  "agent sets serialized editable model reference");
+		Scene modelRestored;
+		modelRestored.Deserialize(modelCheckpoint);
+		Check(modelRestored.Serialize() == modelCheckpoint,
+			  "model component scene roundtrip does not require asset IO");
+		auto modelPath = outputDirectory / "ModelScene.bwscene";
+		modelScene.Save(modelPath);
+		modelRestored.Load(modelPath);
+		Check(modelRestored.GetEntity(modelID).ModelAsset == "ModelFixtures/Materials.glb",
+			  "model component disk roundtrip");
+		modelScene.ApplyCommands(
+			Json::array({{{"Operation", "SetTransform"}, {"ID", modelID}, {"Transform", transform}}}));
+		Check(modelScene.GetEntity(modelID).ModelAsset == "ModelFixtures/Materials.glb",
+			  "transform edit preserves model component");
+		modelCheckpoint = modelScene.Serialize();
+		Rejects(
+			[&]
+			{
+				modelScene.ApplyCommands(
+					Json::array({{{"Operation", "SetModel"}, {"ID", 9999}, {"Asset", "Missing.glb"}}}));
+			},
+			"model command rejects missing entity");
+		Rejects(
+			[&]
+			{ modelScene.ApplyCommands(Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", 42}}})); },
+			"model command rejects non-string reference");
+		Rejects(
+			[&]
+			{
+				modelScene.ApplyCommands(Json::array(
+					{{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", "Valid.glb"}, {"Unimplemented", true}}}));
+			},
+			"model command rejects unknown fields");
+		for (const auto& asset : std::vector<std::string>{"/Root.glb",
+														  "//server/share.glb",
+														  "C:/Root.glb",
+														  "Folder\\Root.glb",
+														  "../Outside.glb",
+														  "Folder/../Outside.glb",
+														  "./Root.glb",
+														  "Folder/./Root.glb",
+														  "Folder//Root.glb",
+														  "Folder/",
+														  "https://host/Root.glb",
+														  "file:///Root.glb",
+														  "Root.obj",
+														  "Root.glb?query",
+														  "Root.glb#fragment",
+														  "NUL.glb",
+														  "Folder./Root.glb",
+														  "Folder /Root.glb",
+														  "CON/Root.glb",
+														  "Root*.glb",
+														  std::string("Bad\0Root.glb", 12),
+														  std::string("Bad\nRoot.glb"),
+														  std::string(1025, 'a') + ".glb",
+														  std::string("Bad\xc0\xaf.glb"),
+														  std::string("Bad\xed\xa0\x80.glb"),
+														  std::string("Bad\xf4\x90\x80\x80.glb"),
+														  std::string("Bad\xe2\x82")})
+			Rejects(
+				[&]
+				{
+					modelScene.ApplyCommands(
+						Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", asset}}}));
+				},
+				"model command rejects malformed or non-portable asset path");
+		Check(modelScene.Serialize() == modelCheckpoint, "invalid model edits preserve previous scene");
+		for (const auto& model : {Json{{"Asset", "Valid.glb"}, {"Unknown", true}}, Json::array({"Valid.glb"}),
+								  Json{{"Asset", nullptr}}, Json{{"Asset", "../Outside.glb"}}, Json::object()})
+		{
+			auto malformedModel = modelCheckpoint;
+			malformedModel["Entities"][0]["Model"] = model;
+			Rejects([&] { modelRestored.Deserialize(malformedModel); }, "scene rejects malformed model component");
+		}
+		Scene expectedModelRestored;
+		expectedModelRestored.Load(modelPath);
+		Check(modelRestored.Serialize() == expectedModelRestored.Serialize(),
+			  "invalid model deserialization rolls back");
+		Rejects(
+			[&]
+			{
+				modelScene.ApplyCommands(
+					Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", "Replacement.gltf"}},
+								 {{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", "../Outside.glb"}}}));
+			},
+			"model batch rejects invalid final edit");
+		Check(modelScene.Serialize() == modelCheckpoint, "model command batch rolls back all edits");
+		auto modelPrefab = modelCheckpoint["Entities"][0];
+		modelPrefab.erase("ID");
+		auto prefabID = modelScene.SpawnPrefab(modelPrefab);
+		Check(prefabID != modelID && modelScene.GetEntity(prefabID).ModelAsset == "ModelFixtures/Materials.glb",
+			  "prefab preserves model with fresh entity identity");
+		auto prefabCheckpoint = modelScene.Serialize();
+		modelPrefab["Model"]["Asset"] = "../Outside.glb";
+		Rejects([&] { modelScene.SpawnPrefab(modelPrefab); }, "prefab rejects malformed model asset");
+		Check(modelScene.Serialize() == prefabCheckpoint, "invalid model prefab rolls back entity and ID allocation");
+		modelScene.ApplyCommands(Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", ""}}}));
+		Check(modelScene.GetEntity(modelID).ModelAsset.empty() &&
+				  !modelScene.Serialize()["Entities"][0].contains("Model"),
+			  "empty asset removes model component");
+		for (const auto& asset : {"Models/House.GLB", "Models/House.gltf", "Models/\xe9\x9b\xaa.glb"})
+		{
+			modelScene.ApplyCommands(Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", asset}}}));
+			Check(modelScene.GetEntity(modelID).ModelAsset == asset,
+				  "portable UTF-8 and supported glTF extensions accepted");
+		}
+		std::string longestModelPath;
+		for (int segment = 0; segment < 4; segment++)
+			longestModelPath += std::string(200, 'a') + '/';
+		longestModelPath += std::string(216, 'b') + ".glb";
+		modelScene.ApplyCommands(
+			Json::array({{{"Operation", "SetModel"}, {"ID", modelID}, {"Asset", longestModelPath}}}));
+		Check(modelScene.GetEntity(modelID).ModelAsset.size() == 1024, "model path exact byte limit accepted");
+		Rejects([&] { ValidateModelAssetPath("a" + longestModelPath); }, "model path beyond byte limit rejected");
+		Rejects([&] { ValidateModelAssetPath(std::string(252, 'a') + ".glb"); },
+				"model path segment beyond portable byte limit rejected");
+		Rejects([&] { ValidateModelAssetPath("COM\xc2\xb9.glb"); }, "Unicode Windows device names rejected");
+		modelScene.GetEntity(modelID).ModelAsset = "../Unsafe.glb";
+		Rejects([&] { modelScene.Serialize(); }, "serialization rejects directly mutated unsafe model reference");
 		Scene featureScene;
 		featureScene.Load(root / "Scenes/FeatureTest.bwscene");
+		Check(featureScene.GetEntity(2).ModelAsset == "ModelFixtures/Materials.glb",
+			  "feature scene contains editable model component");
 		std::ifstream scriptFile(root / "Scenes/FeatureTest.lua");
 		std::string script((std::istreambuf_iterator<char>(scriptFile)), {});
 		std::string error;

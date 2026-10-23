@@ -1,0 +1,654 @@
+{
+  "Date": "2026-10-23",
+  "BaselineCommit": "70c07f08bee936383f9cecb471b5d9077295e2a4",
+  "Repository": "https://github.com/Mayer700/bellwether-engine",
+  "Platform": "Windows; NVIDIA GeForce RTX 3070; Vulkan 1.3; GNU C++ 16.1.0",
+  "SourceHashEncoding": "SHA256 of source text with LF line endings",
+  "Commands": [
+    "Tools/Validate.ps1 -GPU -WorldDirectory Cache/Bellwether",
+    "cmake -S . -B BuildRelease -G Ninja -DCMAKE_BUILD_TYPE=Release -DBELLWETHER_USE_LOCAL_VENDOR=OFF -DBUILD_TESTING=ON -DBELLWETHER_GPU_TESTS=ON",
+    "cmake --build BuildRelease --parallel 4",
+    "ctest --test-dir BuildRelease --output-on-failure"
+  ],
+  "Debug": {
+    "Core": {
+      "Passed": 129,
+      "Failed": 0
+    },
+    "Import": {
+      "Passed": 46,
+      "Failed": 0
+    },
+    "Physics": {
+      "Passed": 105,
+      "Failed": 0
+    },
+    "ModelGPU": {
+      "Passed": 25,
+      "Failed": 0
+    },
+    "WorldGPU": {
+      "Passed": 21,
+      "Failed": 0
+    },
+    "CTestSuites": {
+      "Passed": 7,
+      "Failed": 0
+    }
+  },
+  "Release": {
+    "Core": {
+      "Passed": 129,
+      "Failed": 0
+    },
+    "Import": {
+      "Passed": 46,
+      "Failed": 0
+    },
+    "Physics": {
+      "Passed": 105,
+      "Failed": 0
+    },
+    "ModelGPU": {
+      "Passed": 25,
+      "Failed": 0
+    },
+    "WorldGPU": {
+      "Passed": 21,
+      "Failed": 0
+    },
+    "CTestSuites": {
+      "Passed": 7,
+      "Failed": 0
+    }
+  },
+  "DebugMaterialReadback": {
+    "Checks": [
+      {
+        "Name": "base-color sRGB decoding, UV orientation and glTF front-face winding",
+        "Passed": true
+      },
+      {
+        "Name": "emissive sRGB texture samples preserve linear radiance",
+        "Passed": true
+      },
+      {
+        "Name": "occlusion texture uses linear red channel rather than sRGB",
+        "Passed": true
+      },
+      {
+        "Name": "flat normal map retains the surface normal",
+        "Passed": true
+      },
+      {
+        "Name": "MikkTSpace tangent normal map changes the measured surface lighting",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Materials.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from External.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Embedded.glb",
+        "Passed": true
+      },
+      {
+        "Name": "negative node scale preserves visibility and mirrors the texture",
+        "Passed": true
+      },
+      {
+        "Name": "linear normalized vertex colors multiply the sampled base color",
+        "Passed": true
+      },
+      {
+        "Name": "minification uses a complete mip chain averaged in linear color space",
+        "Passed": true
+      },
+      {
+        "Name": "over 1200 materials reuse two sampler states without changing rendering",
+        "Passed": true
+      },
+      {
+        "Name": "metallic blue and roughness green channels drive GGX lighting",
+        "Passed": true
+      },
+      {
+        "Name": "back-facing double-sided normal map reverses the complete tangent frame",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout texels leave holes in color and depth coverage",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout holes also reach the sun shadow depth map",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: InvalidView.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: BadImage.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: OutOfRangeIndex.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: Skinned.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "serialized model component renders identically to direct glTF import",
+        "Passed": true
+      },
+      {
+        "Name": "multiple model entities share uploaded geometry",
+        "Passed": true
+      },
+      {
+        "Name": "entity transform composes with glTF node transforms",
+        "Passed": true
+      },
+      {
+        "Name": "missing model in authored scene preserves the previous GPU scene",
+        "Passed": true
+      },
+      {
+        "Name": "removing a model component clears its rendered instances",
+        "Passed": true
+      }
+    ],
+    "CutoutColorPixels": 11906,
+    "CutoutShadowTexels": 25373,
+    "Failed": 0,
+    "GraySRGBLinear": 0.2158605307340622
+  },
+  "ReleaseMaterialReadback": {
+    "Checks": [
+      {
+        "Name": "base-color sRGB decoding, UV orientation and glTF front-face winding",
+        "Passed": true
+      },
+      {
+        "Name": "emissive sRGB texture samples preserve linear radiance",
+        "Passed": true
+      },
+      {
+        "Name": "occlusion texture uses linear red channel rather than sRGB",
+        "Passed": true
+      },
+      {
+        "Name": "flat normal map retains the surface normal",
+        "Passed": true
+      },
+      {
+        "Name": "MikkTSpace tangent normal map changes the measured surface lighting",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Materials.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from External.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Embedded.glb",
+        "Passed": true
+      },
+      {
+        "Name": "negative node scale preserves visibility and mirrors the texture",
+        "Passed": true
+      },
+      {
+        "Name": "linear normalized vertex colors multiply the sampled base color",
+        "Passed": true
+      },
+      {
+        "Name": "minification uses a complete mip chain averaged in linear color space",
+        "Passed": true
+      },
+      {
+        "Name": "over 1200 materials reuse two sampler states without changing rendering",
+        "Passed": true
+      },
+      {
+        "Name": "metallic blue and roughness green channels drive GGX lighting",
+        "Passed": true
+      },
+      {
+        "Name": "back-facing double-sided normal map reverses the complete tangent frame",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout texels leave holes in color and depth coverage",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout holes also reach the sun shadow depth map",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: InvalidView.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: BadImage.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: OutOfRangeIndex.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: Skinned.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "serialized model component renders identically to direct glTF import",
+        "Passed": true
+      },
+      {
+        "Name": "multiple model entities share uploaded geometry",
+        "Passed": true
+      },
+      {
+        "Name": "entity transform composes with glTF node transforms",
+        "Passed": true
+      },
+      {
+        "Name": "missing model in authored scene preserves the previous GPU scene",
+        "Passed": true
+      },
+      {
+        "Name": "removing a model component clears its rendered instances",
+        "Passed": true
+      }
+    ],
+    "CutoutColorPixels": 11906,
+    "CutoutShadowTexels": 25373,
+    "Failed": 0,
+    "GraySRGBLinear": 0.2158605307340622
+  },
+  "DebugWorldReadback": {
+    "Checks": [
+      {
+        "Name": "HDR readback retains radiance above one",
+        "Passed": true
+      },
+      {
+        "Name": "shadow toggle darkens geometry without adding light",
+        "Passed": true
+      },
+      {
+        "Name": "cube shadow reaches the analytically projected ground point",
+        "Passed": true
+      },
+      {
+        "Name": "unoccluded ground remains lit",
+        "Passed": true
+      },
+      {
+        "Name": "PCF produces a filtered shadow boundary",
+        "Passed": true
+      },
+      {
+        "Name": "exposure changes the post-process output",
+        "Passed": true
+      },
+      {
+        "Name": "exposure preserves linear HDR scene radiance",
+        "Passed": true
+      },
+      {
+        "Name": "GPU tone mapping matches HDR readback including image orientation",
+        "Passed": true
+      },
+      {
+        "Name": "HDR targets resize for a different aspect ratio",
+        "Passed": true
+      },
+      {
+        "Name": "large terrain bounds remain visible when the camera reaches the frontier",
+        "Passed": true
+      },
+      {
+        "Name": "out-of-range albedo rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "unrepresentable HDR emission rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "overflowing transform determinant rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-affine mesh transforms reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "mesh path traversal rejects before reading another location",
+        "Passed": true
+      },
+      {
+        "Name": "invalid asset renderer settings reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-finite mesh data rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "zero mesh normal rejects before it can create invalid GPU lighting",
+        "Passed": true
+      },
+      {
+        "Name": "invalid mesh indices reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "truncated terrain rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "rendered world survives all rejected asset loads unchanged",
+        "Passed": true
+      }
+    ],
+    "Failed": 0,
+    "FilteredSamples": 3,
+    "GPUTimeMilliseconds": {
+      "NoShadows": 0.12134400010108948,
+      "Shadows": 0.3914879858493805
+    },
+    "HDRPeak": 5.796875,
+    "ShadowedPixels": 16151,
+    "TonemapMismatches": 0
+  },
+  "ReleaseWorldReadback": {
+    "Checks": [
+      {
+        "Name": "HDR readback retains radiance above one",
+        "Passed": true
+      },
+      {
+        "Name": "shadow toggle darkens geometry without adding light",
+        "Passed": true
+      },
+      {
+        "Name": "cube shadow reaches the analytically projected ground point",
+        "Passed": true
+      },
+      {
+        "Name": "unoccluded ground remains lit",
+        "Passed": true
+      },
+      {
+        "Name": "PCF produces a filtered shadow boundary",
+        "Passed": true
+      },
+      {
+        "Name": "exposure changes the post-process output",
+        "Passed": true
+      },
+      {
+        "Name": "exposure preserves linear HDR scene radiance",
+        "Passed": true
+      },
+      {
+        "Name": "GPU tone mapping matches HDR readback including image orientation",
+        "Passed": true
+      },
+      {
+        "Name": "HDR targets resize for a different aspect ratio",
+        "Passed": true
+      },
+      {
+        "Name": "large terrain bounds remain visible when the camera reaches the frontier",
+        "Passed": true
+      },
+      {
+        "Name": "out-of-range albedo rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "unrepresentable HDR emission rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "overflowing transform determinant rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-affine mesh transforms reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "mesh path traversal rejects before reading another location",
+        "Passed": true
+      },
+      {
+        "Name": "invalid asset renderer settings reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "non-finite mesh data rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "zero mesh normal rejects before it can create invalid GPU lighting",
+        "Passed": true
+      },
+      {
+        "Name": "invalid mesh indices reject without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "truncated terrain rejects without replacing the loaded world",
+        "Passed": true
+      },
+      {
+        "Name": "rendered world survives all rejected asset loads unchanged",
+        "Passed": true
+      }
+    ],
+    "Failed": 0,
+    "FilteredSamples": 3,
+    "GPUTimeMilliseconds": {
+      "NoShadows": 0.1212799996137619,
+      "Shadows": 0.395935982465744
+    },
+    "HDRPeak": 5.796875,
+    "ShadowedPixels": 16151,
+    "TonemapMismatches": 0
+  },
+  "RelocatedMaterialReadback": {
+    "Checks": [
+      {
+        "Name": "base-color sRGB decoding, UV orientation and glTF front-face winding",
+        "Passed": true
+      },
+      {
+        "Name": "emissive sRGB texture samples preserve linear radiance",
+        "Passed": true
+      },
+      {
+        "Name": "occlusion texture uses linear red channel rather than sRGB",
+        "Passed": true
+      },
+      {
+        "Name": "flat normal map retains the surface normal",
+        "Passed": true
+      },
+      {
+        "Name": "MikkTSpace tangent normal map changes the measured surface lighting",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Materials.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from External.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "identical GPU output from Embedded.glb",
+        "Passed": true
+      },
+      {
+        "Name": "negative node scale preserves visibility and mirrors the texture",
+        "Passed": true
+      },
+      {
+        "Name": "linear normalized vertex colors multiply the sampled base color",
+        "Passed": true
+      },
+      {
+        "Name": "minification uses a complete mip chain averaged in linear color space",
+        "Passed": true
+      },
+      {
+        "Name": "over 1200 materials reuse two sampler states without changing rendering",
+        "Passed": true
+      },
+      {
+        "Name": "metallic blue and roughness green channels drive GGX lighting",
+        "Passed": true
+      },
+      {
+        "Name": "back-facing double-sided normal map reverses the complete tangent frame",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout texels leave holes in color and depth coverage",
+        "Passed": true
+      },
+      {
+        "Name": "alpha-cutout holes also reach the sun shadow depth map",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: InvalidView.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: BadImage.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: OutOfRangeIndex.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "rejected model preserves previous GPU scene: Skinned.gltf",
+        "Passed": true
+      },
+      {
+        "Name": "serialized model component renders identically to direct glTF import",
+        "Passed": true
+      },
+      {
+        "Name": "multiple model entities share uploaded geometry",
+        "Passed": true
+      },
+      {
+        "Name": "entity transform composes with glTF node transforms",
+        "Passed": true
+      },
+      {
+        "Name": "missing model in authored scene preserves the previous GPU scene",
+        "Passed": true
+      },
+      {
+        "Name": "removing a model component clears its rendered instances",
+        "Passed": true
+      }
+    ],
+    "CutoutColorPixels": 11906,
+    "CutoutShadowTexels": 25373,
+    "Failed": 0,
+    "GraySRGBLinear": 0.2158605307340622
+  },
+  "OriginalCabin": {
+    "Path": "../assets/production/cabin.glb",
+    "SHA256": "5881a1a78f8fc9718e5f8d05ebd752fca0c74cb338360054f85607b44041280a",
+    "ImportedPrimitives": 32,
+    "ImportedPlacements": 32,
+    "Capture": "Evidence/Models/Cabin.png",
+    "GeometryPixels": 60992,
+    "ForegroundPixels": 29025
+  },
+  "OriginalStaticWorld": {
+    "Placements": 4504,
+    "GeometryPixels": 575346,
+    "ForegroundPixels": 172765
+  },
+  "ReviewDocuments": [
+    "Docs/ModelReview.md",
+    "Docs/ModelComponents.md",
+    "Docs/Physics.md"
+  ],
+  "Limits": [
+    "Static models only; animation/skinning and gameplay port pending.",
+    "Physics is tested independently; scene/Lua/character/gameplay integration pending.",
+    "Editor panels/gizmos, audio, IBL/SSAO and complete game export pending.",
+    "Only Windows executed; no other-platform GPU proof or Khronos validation-layer run.",
+    "GPU timings are controlled fixture samples, not whole-game performance or Godot improvement claims."
+  ],
+  "SourceSHA256": {
+    "CMakeLists.txt": "27a1f2a35bf701ef4f875ae4e488b261febef7308477248565bb6a04283b18cd",
+    "CMakePresets.json": "1e6e926df5db8a19a61dc12f7003297be8b9940f1b2cbb23c78261d5fe106c2b",
+    "Scenes/FeatureTest.bwscene": "006d3a589cf313cf31b5654e110857f88c740c8712bc7db3dd3b5d2717a9575f",
+    "Scenes/FeatureTest.lua": "0f1e625d401e1cc837ea0cab4ebafd0ee01c4f45013f5a6e335c65851d1098c0",
+    "Scenes/FeatureWorld.json": "57e6fe62bd2c9e7c832a0a331c9e9fe76a98b89daabee4c224a8bee0bc9a590e",
+    "Shaders/Fullscreen.vert": "6f90b54c63e8a5c1eaf39095d18b162a310fb881c5170d394ddc5b90c600b8c2",
+    "Shaders/Shadow.frag": "20f9a6e3293109e5e3ffaa9c74c994baec22bfeb3e50b682addf7c18e04c59b6",
+    "Shaders/Shadow.vert": "ed207490034785504f4459eac91844d98bc8a04dbef12978ac94182976ef22b6",
+    "Shaders/Tonemap.frag": "1e13d851aa70a94efec9a4dd3916d69fec38f65f51a7dbd426e505f8534b9ac5",
+    "Shaders/World.frag": "3c5c44e3f016c6859941ae2dd10cf5a8ac455838155255df5fb4025bcdbc55bf",
+    "Shaders/World.vert": "cabd121e9182230dfb04659abfb25e2a3c1c471e09e815c58c88b7c4a7222969",
+    "Source/AgentMain.cpp": "2f520a37311e296ef9b8d1702046645ebd1763447a2a3f66cfa7e85fa6d828b3",
+    "Source/Bellwether/FileSystem.cpp": "aa47c92b960b7800e45b5bc2fe2870d816895c0d0c1615d5fe1b636338d9eda2",
+    "Source/Bellwether/GltfImporter.cpp": "bac5714dbcfd61069732d3f445a779e5b5281d880077de51e6907e149b66c974",
+    "Source/Bellwether/GltfImporter.h": "a3b260e157743a6d21f68787857bf400a79af86ad72fd021f9d9d1248b71adb5",
+    "Source/Bellwether/PhysicsWorld.cpp": "296d9aec96044c1f687bd3858f6272b8e1cee07be00045a6308a94faff50270c",
+    "Source/Bellwether/PhysicsWorld.h": "8821d1120c85f8f7c1ae662707ff5bc9e72ec3c5101735eb1767a4273b7e65f9",
+    "Source/Bellwether/RendererVerification.cpp": "d6c1dbe475c557df7fcb58d5b57a52415b47d5305cf291cac63e9618e94f0cda",
+    "Source/Bellwether/RendererVerification.h": "c0220f42737649ff02b708a795ac3b53e38db3ec8b58fb98f5e9a6a7a37bc666",
+    "Source/Bellwether/RenderSettings.cpp": "30346fa9bdc4e30e0f70a87c9c2754f4b15debe2fe864c0c4ba8ae6a51d4cc90",
+    "Source/Bellwether/RenderSettings.h": "5e5007630d5f609c9adefc47109072f010d8defa52fbbfcea685444723665b77",
+    "Source/Bellwether/Scene.cpp": "9baad7c21707d909cfd1824aed1671ce3360e45a9b7f0cebb186efc3e1e8aeb4",
+    "Source/Bellwether/Scene.h": "de08a10bd3d9925f135e25c1cd204f07e11cf9d650a2c934567da7bbe05bc46c",
+    "Source/Bellwether/ScriptRuntime.cpp": "81c65fbada405e5ebf5c9bdefe54f6a1485d0c01c0d69c59d5ce9c3b26f24479",
+    "Source/Bellwether/ScriptRuntime.h": "0507c40d42ef49acea557cffc82bac88db1fb6c704db30091e14e1f2f702c487",
+    "Source/Bellwether/VulkanContext.cpp": "5bbe96b09ff11875c404435e456980a3af3a74811f2fc182aa04d63789131465",
+    "Source/Bellwether/VulkanContext.h": "0671cecd61f35f2068cb77d4b8e34c0917e88fa2d6218ced4c05d22deb3f3260",
+    "Source/Bellwether/WorldRenderer.cpp": "3d9bcbf9308635dcdea0b7981fc34698818151cd1df1ef819511493c61508361",
+    "Source/Bellwether/WorldRenderer.h": "69a19ce9f31b785aa8851277c889a2ada4f6ec823d432974dbd79f67c78ce0fa",
+    "Source/Bellwether/WorldRendererMaterials.cpp": "9a570dbef37489e1a929fc2b35b111a4935a84ca1d872fe3428c0ce60e8debf6",
+    "Source/EditorMain.cpp": "4a83332796343fdeb7cd977f1757723de8e69d5c2a1c8c841e177ce8b59c73aa",
+    "Source/RuntimeMain.cpp": "c358bee8da13b768a68f36c60e52b05fb8e37d78f104814c9953b3c19bace9ad",
+    "Source/ThirdParty/AssetDependencies.c": "4f21ad31ccb6dc4ff2589837248704e1a7e23215f6c341bece0cd609220198c6",
+    "Tests/AgentTests.cmake": "6169dd1f697e55d07a4c9361c2f248036b983af21603ca63533b7426b095508b",
+    "Tests/AssetTests.cpp": "f56e2f5e4ffb1bc0fe44632df7f7543e88845cd0db32970ce3837ff7721f3e78",
+    "Tests/CoreTests.cpp": "f4798f98ebd7f0fd5e5310ada83a588ce84e378749988bdb1e34cf6ed0c39576",
+    "Tests/PhysicsTests.cpp": "d6b7f4481cde4f05301be23da39098cfd9cd61cfebc63ef09d63263e6525fe38",
+    "Tools/BuildFeatureWorld.py": "ee6f64a3bf3b02e92d0c25a655fb32262988bd38b069f890c2a8cc9b93f17420",
+    "Tools/BuildModelFixtures.py": "65913636f76a097157ffe279ca8c4fe2cc2f9500f0803be8b0ee66b3ac08bb6d",
+    "Tools/ConvertCapture.py": "58aa66c3d062a83bb024dde5f227f74cf2b5d0dff2d8c9bca090bd929e3d078a",
+    "Tools/ExportGodot.gd": "9af70367189a7750dacb9178c01fcba0e221cc528f7d6a431e332d19627a5c90",
+    "Tools/FetchDependency.cmake": "e2045862813a928efbf826862b443c8ad491006d6b5846c09afb19d5eb33dae3",
+    "Tools/Validate.ps1": "ae7093d68b30810d8780697cb6feef805a3e683f08d4217ac69fb79211d0765f"
+  }
+}

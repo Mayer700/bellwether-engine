@@ -4,6 +4,6 @@
   "Renderer": {"Exposure": 1, "Shadows": true, "FogDensity": 0.003},
   "Entities": [
     {"ID": 1, "Name": "Feature Test Root", "Transform": {"Translation": [0, 0, 0], "Rotation": [0, 0, 0], "Scale": [1, 1, 1]}, "Script": "FeatureTest.lua"},
-    {"ID": 2, "Name": "Transform Test", "Transform": {"Translation": [1, 2, 3], "Rotation": [0, 0.5, 0], "Scale": [1, 2, 1]}, "Script": ""}
+    {"ID": 2, "Name": "Transform Test", "Transform": {"Translation": [1, 2, 3], "Rotation": [0, 0.5, 0], "Scale": [1, 2, 1]}, "Script": "", "Model": {"Asset": "ModelFixtures/Materials.glb"}}
   ]
 }

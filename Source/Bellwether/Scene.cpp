@@ -42,6 +42,93 @@ namespace Bellwether
 		return static_cast<EntityID>(id);
 	}
 
+	void ValidateModelAssetPath(const std::string& asset)
+	{
+		if (asset.empty())
+			return;
+		if (asset.size() > 1024 || asset.front() == '/')
+			throw std::invalid_argument("Model asset must be a relative path of at most 1024 UTF-8 bytes");
+		for (size_t index = 0; index < asset.size();)
+		{
+			auto first = static_cast<unsigned char>(asset[index++]);
+			if (first < 0x80)
+			{
+				if (first < 0x20 || first == 0x7f ||
+					std::string("\\:\"<>|?*").find(static_cast<char>(first)) != std::string::npos)
+					throw std::invalid_argument("Model asset contains a non-portable path character");
+				continue;
+			}
+			uint32_t codepoint = 0;
+			size_t continuation = 0;
+			uint32_t minimum = 0;
+			if (first >= 0xc2 && first <= 0xdf)
+			{
+				codepoint = first & 0x1f;
+				continuation = 1;
+				minimum = 0x80;
+			}
+			else if (first >= 0xe0 && first <= 0xef)
+			{
+				codepoint = first & 0x0f;
+				continuation = 2;
+				minimum = 0x800;
+			}
+			else if (first >= 0xf0 && first <= 0xf4)
+			{
+				codepoint = first & 0x07;
+				continuation = 3;
+				minimum = 0x10000;
+			}
+			else
+				throw std::invalid_argument("Model asset must contain valid UTF-8");
+			if (continuation > asset.size() - index)
+				throw std::invalid_argument("Model asset contains truncated UTF-8");
+			while (continuation--)
+			{
+				auto next = static_cast<unsigned char>(asset[index++]);
+				if ((next & 0xc0) != 0x80)
+					throw std::invalid_argument("Model asset must contain valid UTF-8");
+				codepoint = (codepoint << 6) | (next & 0x3f);
+			}
+			if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff))
+				throw std::invalid_argument("Model asset must contain valid UTF-8");
+		}
+		for (size_t begin = 0; begin < asset.size();)
+		{
+			auto end = asset.find('/', begin);
+			if (end == std::string::npos)
+				end = asset.size();
+			auto segment = asset.substr(begin, end - begin);
+			if (segment.empty() || segment.size() > 255 || segment == "." || segment == ".." || segment.back() == '.' ||
+				segment.back() == ' ')
+				throw std::invalid_argument("Model asset contains an invalid path segment");
+			auto stem = segment.substr(0, segment.find('.'));
+			for (auto& character : stem)
+				if (character >= 'a' && character <= 'z')
+					character -= 'a' - 'A';
+			if (stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" ||
+				(stem.size() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")) && stem[3] >= '1' &&
+				 stem[3] <= '9') ||
+				(stem.size() == 5 && (stem.starts_with("COM") || stem.starts_with("LPT")) &&
+				 static_cast<unsigned char>(stem[3]) == 0xc2 &&
+				 (static_cast<unsigned char>(stem[4]) == 0xb9 || static_cast<unsigned char>(stem[4]) == 0xb2 ||
+				  static_cast<unsigned char>(stem[4]) == 0xb3)))
+				throw std::invalid_argument("Model asset contains a reserved device name");
+			if (end == asset.size())
+				break;
+			begin = end + 1;
+			if (begin == asset.size())
+				throw std::invalid_argument("Model asset cannot end with a path separator");
+		}
+		auto extension =
+			asset.substr(asset.find_last_of('.') == std::string::npos ? asset.size() : asset.find_last_of('.'));
+		for (auto& character : extension)
+			if (character >= 'A' && character <= 'Z')
+				character += 'a' - 'A';
+		if (extension != ".gltf" && extension != ".glb")
+			throw std::invalid_argument("Model asset must reference a .gltf or .glb file");
+	}
+
 	glm::vec3 ReadVector(const Json& value)
 	{
 		if (!value.is_array() || value.size() != 3)
@@ -120,6 +207,7 @@ namespace Bellwether
 					   {"Renderer", m_RenderSettings.Serialize()}};
 		for (const auto& [id, entity] : m_Entities)
 		{
+			ValidateModelAssetPath(entity.ModelAsset);
 			result["Entities"].push_back({{"ID", id},
 										  {"Name", entity.Name},
 										  {"Transform",
@@ -127,13 +215,15 @@ namespace Bellwether
 											{"Rotation", WriteVector(entity.Transform.Rotation)},
 											{"Scale", WriteVector(entity.Transform.Scale)}}},
 										  {"Script", entity.Script}});
+			if (!entity.ModelAsset.empty())
+				result["Entities"].back()["Model"] = {{"Asset", entity.ModelAsset}};
 		}
 		return result;
 	}
 
 	static void ReadEntity(Entity& entity, const Json& data)
 	{
-		ValidateFields(data, {"ID", "Name", "Transform", "Script"});
+		ValidateFields(data, {"ID", "Name", "Transform", "Script", "Model"});
 		entity.Name = data.at("Name").get<std::string>();
 		if (entity.Name.empty() || entity.Name.size() > 1024)
 			throw std::invalid_argument("Invalid entity name");
@@ -145,6 +235,13 @@ namespace Bellwether
 		if (glm::any(glm::lessThanEqual(glm::abs(entity.Transform.Scale), glm::vec3(0.00001f))))
 			throw std::invalid_argument("Transform scale must be invertible");
 		entity.Script = data.value("Script", "");
+		entity.ModelAsset.clear();
+		if (data.contains("Model"))
+		{
+			ValidateFields(data.at("Model"), {"Asset"});
+			entity.ModelAsset = data.at("Model").at("Asset").get<std::string>();
+			ValidateModelAssetPath(entity.ModelAsset);
+		}
 	}
 
 	void Scene::Deserialize(const Json& data)
@@ -213,7 +310,17 @@ namespace Bellwether
 				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
 				Json replacement = {
 					{"Name", entity.Name}, {"Transform", command.at("Transform")}, {"Script", entity.Script}};
+				if (!entity.ModelAsset.empty())
+					replacement["Model"] = {{"Asset", entity.ModelAsset}};
 				ReadEntity(entity, replacement);
+			}
+			else if (operation == "SetModel")
+			{
+				ValidateFields(command, {"Operation", "ID", "Asset"});
+				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
+				auto asset = command.at("Asset").get<std::string>();
+				ValidateModelAssetPath(asset);
+				entity.ModelAsset = std::move(asset);
 			}
 			else if (operation == "Rename")
 			{

@@ -1,4 +1,5 @@
 #include "Bellwether/Scene.h"
+#include "Bellwether/GltfImporter.h"
 
 #include <iostream>
 
@@ -11,6 +12,21 @@ int main(int argumentCount, char** arguments)
 				"Usage: BellwetherAgent inspect|validate scene | create scene | apply scene commands.json");
 		Bellwether::Scene scene;
 		std::string command = arguments[1];
+		if (command == "inspect-model")
+		{
+			if (argumentCount != 3)
+				throw std::invalid_argument("inspect-model requires exactly one asset path");
+			auto model = Bellwether::ImportGltf(arguments[2]);
+			std::cout << Bellwether::Json({{"Success", true},
+										   {"Primitives", model.Primitives.size()},
+										   {"Placements", model.Placements.size()},
+										   {"Materials", model.Materials.size()},
+										   {"Images", model.Images.size()},
+										   {"Textures", model.Textures.size()}})
+							 .dump(2)
+					  << '\n';
+			return 0;
+		}
 		if (command == "create")
 		{
 			if (std::filesystem::exists(arguments[2]))

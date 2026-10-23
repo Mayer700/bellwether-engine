@@ -12,4 +12,13 @@ All dependencies are fetched into the ignored Vendor/ or build dependency direct
 | nlohmann/json | 9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03 | MIT; scene/command interchange |
 | glslang | 1062752a891c95b2bfeed9e356562d88f9df84ac | Preserve upstream LICENSE.txt and component notices; build-time SPIR-V compilation |
 
-Miniaudio and a physics backend are selected/planned but not yet linked. Runtime/export packaging must copy the complete applicable dependency notices, rather than relying on this abbreviated table.
+Miniaudio remains planned and is not linked. Jolt Physics is now linked for the isolated rigid-body foundation. Runtime/export packaging must copy complete applicable notices, rather than relying on this abbreviated list.
+
+Static model import adds three pinned upstream dependencies, fetched with the same verified-TLS process:
+
+- cgltf, `jkuhlmann/cgltf` at `85cd62382dfea638278962690cf515023f33ed00`: MIT; retain its `LICENSE` (Johannes Kuhlmann copyright).
+- stb, `nothings/stb` at `003501f6d7a8668ce8b6d875e34dd97ad0d5d5b5`: MIT alternative selected; retain its `LICENSE`. Only `stb_image` PNG/JPEG memory decoding is built.
+- MikkTSpace, `mmikk/MikkTSpace` at `3e895b49d05ea07e4c2133156cfa94369e19e409`: upstream zlib-style notice in `mikktspace.h` and `mikktspace.c`, copyright Morten S. Mikkelsen. Both files remain unmodified. Retain the full notices in source distributions and exported license bundles.
+- Jolt Physics, `jrouwe/JoltPhysics` v5.5.0 at `23dadd0e603f1b321142d4c74df07fce85064989`: MIT, copyright Jorrit Rouwe; retain upstream `LICENSE`. The build disables optional host-specific AVX features, enables the deterministic configuration and keeps matching dependency definitions on the wrapper.
+
+`Source/ThirdParty/AssetDependencies.c` defines the upstream implementation macros; it contains no copied dependency implementation. Generated model/texture fixtures are original test content authored by `Tools/BuildModelFixtures.py`.

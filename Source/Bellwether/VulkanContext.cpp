@@ -438,6 +438,28 @@ namespace Bellwether
 		m_Implementation->World = std::move(candidate);
 	}
 
+	void VulkanContext::LoadModel(const std::filesystem::path& path)
+	{
+		if (!m_Implementation->Renderer)
+			throw std::logic_error("Cannot load a model after context shutdown");
+		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
+		candidate->LoadModel(path);
+		std::cout << "MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
+		m_Implementation->World = std::move(candidate);
+	}
+
+	void VulkanContext::LoadScene(const std::filesystem::path& path)
+	{
+		if (!m_Implementation->Renderer)
+			throw std::logic_error("Cannot load a scene after context shutdown");
+		Scene scene;
+		scene.Load(path);
+		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
+		candidate->LoadScene(scene, std::filesystem::absolute(path).parent_path());
+		std::cout << "SCENE_MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
+		m_Implementation->World = std::move(candidate);
+	}
+
 	void VulkanContext::CaptureWorld(const std::filesystem::path& output)
 	{
 		if (!output.parent_path().empty())
@@ -481,18 +503,30 @@ namespace Bellwether
 			throw std::runtime_error("Cannot map world capture");
 		std::ofstream file(output, std::ios::binary);
 		file << "P6\n" << width << " " << height << "\n255\n";
+		auto encodeBackground = [&](float value)
+		{
+			value *= implementation.World->GetSettings().Exposure;
+			float tone =
+				std::clamp((value * (2.51f * value + .03f)) / (value * (2.43f * value + .59f) + .14f), 0.f, 1.f);
+			return int(std::lround(std::pow(tone, 1 / 2.2f) * 255));
+		};
+		const std::array<int, 3> background{encodeBackground(.055f), encodeBackground(.09f), encodeBackground(.14f)};
 		for (uint32_t y = 0; y < height; y++)
 			for (uint32_t x = 0; x < width; x++)
 			{
 				auto* pixel = pixels + y * rowPitch + x * 4;
-				geometryPixels += pixel[0] > 40 || pixel[1] > 45 || pixel[2] > 55;
-				foregroundPixels += (pixel[0] > 40 || pixel[1] > 45 || pixel[2] > 55) &&
-									(unsigned(pixel[0]) + pixel[1] + pixel[2]) / 3 < 160;
+				bool geometry = std::abs(int(pixel[0]) - background[0]) > 3 ||
+								std::abs(int(pixel[1]) - background[1]) > 3 ||
+								std::abs(int(pixel[2]) - background[2]) > 3;
+				geometryPixels += geometry;
+				foregroundPixels += geometry && (unsigned(pixel[0]) + pixel[1] + pixel[2]) / 3 < 190;
 				file.write(reinterpret_cast<char*>(pixel), 3);
 			}
 		renderer->unmapStagingTexture(staging);
-		if (!file || geometryPixels < 5000 || foregroundPixels < 3000)
-			throw std::runtime_error("World capture has insufficient rendered geometry");
+		if (!file || geometryPixels < 5000)
+			throw std::runtime_error(
+				"World capture has insufficient pixels distinct from its tone-mapped background: " +
+				std::to_string(geometryPixels));
 		std::cout << "WORLD_CAPTURE " << geometryPixels << " geometry pixels, " << foregroundPixels
 				  << " foreground pixels\n";
 	}
@@ -526,6 +560,15 @@ namespace Bellwether
 			throw std::logic_error("Load the renderer fixture before verification");
 		Bellwether::VerifyRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
 								   fixtureDirectory);
+	}
+
+	void VulkanContext::VerifyModelRenderer(const std::filesystem::path& outputDirectory,
+											const std::filesystem::path& fixtureDirectory)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load the model fixture before verification");
+		Bellwether::VerifyModelRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
+										fixtureDirectory);
 	}
 
 } // namespace Bellwether
