@@ -308,8 +308,7 @@ namespace Bellwether
 					SnowCell& cell = m_Cells[index];
 					if (cell.Ice > 0.92f)
 						continue;
-					float t = 1.0f - (dist / radius);
-					float kernel = t * t * (3.0f - 2.0f * t);
+					float kernel = 1.0f - SmoothStep(radius * 0.25f, radius, dist);
 					float iceResist = 1.0f - cell.Ice * 0.85f;
 					float targetComp = std::min(cell.BaseDepth, pressureDepth * kernel * iceResist);
 					float addedComp = std::max(0.0f, targetComp - cell.Compression);

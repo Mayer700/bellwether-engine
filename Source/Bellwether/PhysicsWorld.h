@@ -6,16 +6,20 @@
 #include <glm/gtc/quaternion.hpp>
 #include <memory>
 #include <optional>
+#include <vector>
 
 namespace Bellwether
 {
+
+	class SnowField;
 
 	using PhysicsBodyHandle = uint64_t;
 
 	enum class PhysicsShape
 	{
 		Box,
-		Sphere
+		Sphere,
+		Capsule
 	};
 
 	enum class PhysicsMotion
@@ -39,12 +43,24 @@ namespace Bellwether
 		glm::quat Rotation{1.0f, 0.0f, 0.0f, 0.0f};
 		glm::vec3 HalfExtents{0.5f};
 		float Radius = 0.5f;
+		float HalfHeight = 0.5f;
 		float Mass = 1.0f;
 		float Friction = 0.5f;
 		float Restitution = 0.0f;
 		glm::vec3 LinearVelocity{0.0f};
 		PhysicsCollisionFilter Collision;
 		bool AllowSleeping = true;
+	};
+
+	struct PhysicsHeightFieldSettings
+	{
+		uint32_t SampleCount = 0;
+		float WorldExtent = 384.0f;
+		glm::vec3 Position{0.0f};
+		std::vector<float> Heights;
+		float Friction = 0.7f;
+		float Restitution = 0.0f;
+		PhysicsCollisionFilter Collision;
 	};
 
 	struct PhysicsBodyState
@@ -87,6 +103,7 @@ namespace Bellwether
 		PhysicsWorld& operator=(PhysicsWorld&&) = delete;
 
 		PhysicsBodyHandle CreateBody(const PhysicsBodySettings& settings);
+		PhysicsBodyHandle CreateHeightField(const PhysicsHeightFieldSettings& settings);
 		void DestroyBody(PhysicsBodyHandle handle);
 		bool Exists(PhysicsBodyHandle handle) const;
 		size_t GetBodyCount() const;
@@ -94,6 +111,8 @@ namespace Bellwether
 		void SetBodyTransform(PhysicsBodyHandle handle, const glm::vec3& position, const glm::quat& rotation);
 		void SetLinearVelocity(PhysicsBodyHandle handle, const glm::vec3& velocity);
 		void AddImpulse(PhysicsBodyHandle handle, const glm::vec3& impulse);
+		bool ApplySnowInteraction(PhysicsBodyHandle handle, SnowField& snow, const glm::vec2& previousXZ,
+								  float contactRadius, float dragStrength = 3.0f, float pressureDepth = 0.25f);
 
 		// Always advances exactly one configured tick. Variable time is never passed to Jolt.
 		void StepFixed();

@@ -1,4 +1,5 @@
 #include "PhysicsWorld.h"
+#include "SnowField.h"
 
 // Jolt.h must precede every other Jolt header.
 #include <Jolt/Jolt.h>
@@ -12,6 +13,8 @@
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -171,7 +174,8 @@ namespace Bellwether
 		{
 			if (settings.Motion != PhysicsMotion::Static && settings.Motion != PhysicsMotion::Dynamic)
 				throw std::invalid_argument("Unsupported physics motion type");
-			if (settings.Shape != PhysicsShape::Box && settings.Shape != PhysicsShape::Sphere)
+			if (settings.Shape != PhysicsShape::Box && settings.Shape != PhysicsShape::Sphere &&
+				settings.Shape != PhysicsShape::Capsule)
 				throw std::invalid_argument("Unsupported physics shape");
 			ValidateVector(settings.Position, s_MaximumPosition, "Physics position");
 			ValidateRotation(settings.Rotation);
@@ -183,12 +187,29 @@ namespace Bellwether
 			ValidateVector(settings.HalfExtents, 10000.0f, "Physics box dimensions");
 			if (settings.HalfExtents.x < 0.01f || settings.HalfExtents.y < 0.01f || settings.HalfExtents.z < 0.01f)
 				throw std::invalid_argument("Physics box half extents must be at least 0.01 metres");
-			ValidateRange(settings.Radius, 0.01f, 10000.0f, "Physics sphere radius");
+			ValidateRange(settings.Radius, 0.01f, 10000.0f, "Physics shape radius");
+			ValidateRange(settings.HalfHeight, 0.01f, 10000.0f, "Physics capsule half-height");
 			ValidateRange(settings.Mass, 0.001f, 1000000.0f, "Physics mass");
 			ValidateRange(settings.Friction, 0.0f, 1.0f, "Physics friction");
 			ValidateRange(settings.Restitution, 0.0f, 1.0f, "Physics restitution");
 			if (settings.Collision.Category > 7)
 				throw std::invalid_argument("Physics collision category must be an index from 0 to 7");
+		}
+
+		void ValidateHeightField(const PhysicsHeightFieldSettings& settings)
+		{
+			if (settings.SampleCount < 4 || settings.SampleCount > 2048)
+				throw std::invalid_argument("Heightfield SampleCount must be between 4 and 2048");
+			if (settings.Heights.size() != static_cast<size_t>(settings.SampleCount) * settings.SampleCount)
+				throw std::invalid_argument("Heightfield Heights size does not match SampleCount * SampleCount");
+			ValidateRange(settings.WorldExtent, 1.0f, 100000.0f, "Heightfield WorldExtent");
+			ValidateVector(settings.Position, s_MaximumPosition, "Heightfield position");
+			for (float height : settings.Heights)
+				ValidateRange(height, -10000.0f, 10000.0f, "Heightfield elevation");
+			ValidateRange(settings.Friction, 0.0f, 1.0f, "Heightfield friction");
+			ValidateRange(settings.Restitution, 0.0f, 1.0f, "Heightfield restitution");
+			if (settings.Collision.Category > 7)
+				throw std::invalid_argument("Heightfield collision category must be an index from 0 to 7");
 		}
 
 		PhysicsBodyHandle AllocateHandle()
@@ -434,6 +455,8 @@ namespace Bellwether
 				0.05f, std::min({settings.HalfExtents.x, settings.HalfExtents.y, settings.HalfExtents.z}) * 0.1f);
 			shape = new JPH::BoxShape(ToJolt(settings.HalfExtents), convexRadius);
 		}
+		else if (settings.Shape == PhysicsShape::Capsule)
+			shape = new JPH::CapsuleShape(settings.HalfHeight, settings.Radius);
 		else
 			shape = new JPH::SphereShape(settings.Radius);
 		const auto handle = AllocateHandle();
@@ -460,6 +483,59 @@ namespace Bellwether
 			record->second.ID = body->GetID();
 			bodies.AddBody(body->GetID(), settings.Motion == PhysicsMotion::Dynamic ? JPH::EActivation::Activate
 																					: JPH::EActivation::DontActivate);
+			added = true;
+			world.WakeNeighbors(world.GetBounds(body->GetID()));
+		}
+		catch (...)
+		{
+			if (body != nullptr)
+			{
+				if (added)
+					bodies.RemoveBody(body->GetID());
+				bodies.DestroyBody(body->GetID());
+			}
+			world.Bodies.erase(record);
+			throw;
+		}
+		return handle;
+	}
+
+	PhysicsBodyHandle PhysicsWorld::CreateHeightField(const PhysicsHeightFieldSettings& settings)
+	{
+		auto& world = *m_Implementation;
+		world.CheckAccess();
+		ValidateHeightField(settings);
+		if (world.Bodies.size() >= world.Settings.MaximumBodies)
+			throw std::runtime_error("Physics body capacity reached; increase MaximumBodies");
+
+		const float cellStep = settings.WorldExtent / static_cast<float>(settings.SampleCount - 1);
+		const JPH::Vec3 offset(-settings.WorldExtent * 0.5f, 0.0f, -settings.WorldExtent * 0.5f);
+		const JPH::Vec3 scale(cellStep, 1.0f, cellStep);
+		JPH::HeightFieldShapeSettings hfSettings(settings.Heights.data(), offset, scale, settings.SampleCount);
+		const auto shapeResult = hfSettings.Create();
+		if (shapeResult.HasError())
+			throw std::runtime_error(std::string("Jolt HeightField creation failed: ") +
+									 shapeResult.GetError().c_str());
+
+		const auto handle = AllocateHandle();
+		const auto record = world.Bodies.emplace(handle, Implementation::BodyRecord{{}, PhysicsMotion::Static}).first;
+		auto& bodies = world.System.GetBodyInterface();
+		JPH::Body* body = nullptr;
+		bool added = false;
+		try
+		{
+			const auto layer =
+				static_cast<JPH::ObjectLayer>(settings.Collision.Category | (settings.Collision.Mask << 3));
+			JPH::BodyCreationSettings creation(shapeResult.Get(), JPH::RVec3(ToJolt(settings.Position)),
+											   JPH::Quat::sIdentity(), JPH::EMotionType::Static, layer);
+			creation.mUserData = handle;
+			creation.mFriction = settings.Friction;
+			creation.mRestitution = settings.Restitution;
+			body = bodies.CreateBody(creation);
+			if (body == nullptr)
+				throw std::runtime_error("Jolt could not allocate a heightfield body");
+			record->second.ID = body->GetID();
+			bodies.AddBody(body->GetID(), JPH::EActivation::DontActivate);
 			added = true;
 			world.WakeNeighbors(world.GetBounds(body->GetID()));
 		}
@@ -563,6 +639,46 @@ namespace Bellwether
 					"Physics impulse would exceed the body's 500 metres per second speed limit");
 		}
 		world.System.GetBodyInterface().AddImpulse(record.ID, ToJolt(impulse));
+	}
+
+	bool PhysicsWorld::ApplySnowInteraction(PhysicsBodyHandle handle, SnowField& snow, const glm::vec2& previousXZ,
+											float contactRadius, float dragStrength, float pressureDepth)
+	{
+		auto& world = *m_Implementation;
+		const auto& record = world.GetBody(handle);
+		if (record.Motion != PhysicsMotion::Dynamic)
+			throw std::invalid_argument("Snow physics interaction requires a dynamic rigid body");
+		if (!std::isfinite(previousXZ.x) || !std::isfinite(previousXZ.y))
+			throw std::invalid_argument("Snow previousXZ position must be finite");
+		ValidateRange(contactRadius, 0.02f, 50.0f, "Snow contact radius");
+		ValidateRange(dragStrength, 0.0f, 100.0f, "Snow drag strength");
+		ValidateRange(pressureDepth, 0.0f, 10.0f, "Snow pressure depth");
+
+		const auto state = GetBodyState(handle);
+		const auto groundCheck = Raycast(state.Position, {0.0f, -(contactRadius + 1.25f), 0.0f}, 0xff, handle);
+		if (!groundCheck.has_value())
+			return false;
+
+		const glm::vec2 currentXZ(state.Position.x, state.Position.z);
+		const auto sample = snow.Sample(currentXZ);
+		bool stamped = false;
+		if (pressureDepth > 0.0f && sample.BaseDepth > 0.01f)
+		{
+			const float appliedPressure = std::min(sample.BaseDepth, pressureDepth);
+			stamped = snow.StampSegment(previousXZ, currentXZ, contactRadius, appliedPressure);
+		}
+
+		const float snowResistance = (1.0f - sample.SpeedFactor) * (1.0f - sample.Ice * 0.75f);
+		const float dt = static_cast<float>(world.Settings.FixedStepSeconds);
+		const float factor = 1.0f / (1.0f + std::max(0.0f, dragStrength * snowResistance * dt));
+		if (factor < 0.9999f)
+		{
+			glm::vec3 updatedVelocity(state.LinearVelocity.x * factor, state.LinearVelocity.y,
+									  state.LinearVelocity.z * factor);
+			if (glm::dot(updatedVelocity, updatedVelocity) > 1e-8f)
+				SetLinearVelocity(handle, updatedVelocity);
+		}
+		return stamped;
 	}
 
 	void PhysicsWorld::StepFixed()

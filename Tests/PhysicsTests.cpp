@@ -1,4 +1,5 @@
 #include "Bellwether/PhysicsWorld.h"
+#include "Bellwether/SnowField.h"
 
 #include <cfenv>
 #include <cmath>
@@ -529,6 +530,153 @@ namespace
 				"world-envelope fault prevents presenting a valid simulation");
 	}
 
+	void TestCapsulesHeightfieldsAndSnowPhysics()
+	{
+		using namespace Bellwether;
+		// Capsule rests cleanly at HalfHeight + Radius above flat ground
+		{
+			PhysicsWorld world;
+			PhysicsBodySettings floorSettings;
+			floorSettings.Shape = PhysicsShape::Box;
+			floorSettings.Motion = PhysicsMotion::Static;
+			floorSettings.Position = {0.0f, -0.5f, 0.0f};
+			floorSettings.HalfExtents = {40.0f, 0.5f, 40.0f};
+			world.CreateBody(floorSettings);
+
+			PhysicsBodySettings capsuleSettings;
+			capsuleSettings.Shape = PhysicsShape::Capsule;
+			capsuleSettings.Motion = PhysicsMotion::Dynamic;
+			capsuleSettings.HalfHeight = 0.8f;
+			capsuleSettings.Radius = 0.35f;
+			capsuleSettings.Position = {0.0f, 4.0f, 0.0f};
+			const auto capsule = world.CreateBody(capsuleSettings);
+			for (int tick = 0; tick < 180; ++tick)
+				world.StepFixed();
+			const auto settled = world.GetBodyState(capsule);
+			Check(std::abs(settled.Position.y - (capsuleSettings.HalfHeight + capsuleSettings.Radius)) < 0.08f,
+				  "dynamic capsule rests at HalfHeight + Radius on ground");
+
+			PhysicsBodySettings badCapsule = capsuleSettings;
+			badCapsule.HalfHeight = 0.0f;
+			Rejects([&] { world.CreateBody(badCapsule); }, "zero capsule half-height rejected");
+		}
+
+		// Heightfield collision, raycast normal, and slope rolling
+		{
+			PhysicsWorld world;
+			PhysicsHeightFieldSettings terrain;
+			terrain.SampleCount = 16;
+			terrain.WorldExtent = 30.0f;
+			terrain.Friction = 0.25f;
+			terrain.Heights.resize(static_cast<size_t>(terrain.SampleCount) * terrain.SampleCount);
+			for (uint32_t z = 0; z < terrain.SampleCount; ++z)
+				for (uint32_t x = 0; x < terrain.SampleCount; ++x)
+					terrain.Heights[static_cast<size_t>(z) * terrain.SampleCount + x] =
+						-0.25f * (static_cast<float>(x) * 2.0f - terrain.WorldExtent * 0.5f);
+
+			const auto terrainHandle = world.CreateHeightField(terrain);
+			const auto ray = world.Raycast({0.0f, 40.0f, 0.0f}, {0.0f, -80.0f, 0.0f});
+			Check(ray.has_value() && ray->Body == terrainHandle && ray->Normal.x > 0.1f && ray->Normal.y > 0.7f,
+				  "heightfield raycast returns terrain handle and sloped surface normal");
+
+			PhysicsBodySettings sphere;
+			sphere.Shape = PhysicsShape::Sphere;
+			sphere.Motion = PhysicsMotion::Dynamic;
+			sphere.Radius = 0.5f;
+			sphere.Friction = 0.25f;
+			sphere.Position = {-6.0f, 2.5f, 0.0f};
+			const auto ball = world.CreateBody(sphere);
+			for (int tick = 0; tick < 150; ++tick)
+				world.StepFixed();
+			const auto rolled = world.GetBodyState(ball);
+			Check(rolled.Position.x > -3.5f && rolled.LinearVelocity.x > 0.8f,
+				  "sphere rolls deterministically down heightfield slope");
+
+			PhysicsHeightFieldSettings badTerrain = terrain;
+			badTerrain.SampleCount = 2;
+			badTerrain.Heights.assign(4, 0.0f);
+			Rejects([&] { world.CreateHeightField(badTerrain); }, "undersized heightfield rejected");
+
+			badTerrain = terrain;
+			badTerrain.Heights[3] = std::numeric_limits<float>::quiet_NaN();
+			Rejects([&] { world.CreateHeightField(badTerrain); }, "non-finite heightfield sample rejected");
+		}
+
+		// Snow-coupled physics drag and track creation with bit-identical replay
+		auto runSnowSlide = [](float snowDepth, float iceFraction)
+		{
+			PhysicsWorld world;
+			PhysicsBodySettings floorSettings;
+			floorSettings.Shape = PhysicsShape::Box;
+			floorSettings.Motion = PhysicsMotion::Static;
+			floorSettings.Position = {0.0f, -0.5f, 0.0f};
+			floorSettings.HalfExtents = {40.0f, 0.5f, 40.0f};
+			floorSettings.Friction = 0.2f;
+			const auto floorBody = world.CreateBody(floorSettings);
+
+			PhysicsBodySettings sled;
+			sled.Shape = PhysicsShape::Sphere;
+			sled.Motion = PhysicsMotion::Dynamic;
+			sled.Radius = 0.45f;
+			sled.Friction = 0.2f;
+			sled.Position = {-10.0f, 0.45f, 0.0f};
+			sled.LinearVelocity = {8.0f, 0.0f, 0.0f};
+			const auto body = world.CreateBody(sled);
+
+			SnowFieldConfig config;
+			config.Resolution = 128;
+			config.WorldExtent = 64.0f;
+			config.BaseDepth = snowDepth;
+			config.MaxDepth = 1.5f;
+			SnowField snow(config);
+			if (iceFraction > 0.0f)
+			{
+				for (uint32_t z = 0; z < config.Resolution; ++z)
+					for (uint32_t x = 0; x < config.Resolution; ++x)
+					{
+						SnowCell cell = snow.GetCell(x, z);
+						cell.Ice = iceFraction;
+						snow.SetCell(x, z, cell);
+					}
+			}
+
+			// Verify static body snow call fails and airborne body does not carve tracks
+			Rejects([&] { world.ApplySnowInteraction(floorBody, snow, {0.0f, 0.0f}, 0.4f); },
+					"snow interaction rejects static body");
+
+			auto airborne = sled;
+			airborne.Position = {0.0f, 12.0f, 0.0f};
+			airborne.LinearVelocity = {2.0f, 0.0f, 0.0f};
+			const auto flying = world.CreateBody(airborne);
+			const bool carvedAir = world.ApplySnowInteraction(flying, snow, {-0.5f, 0.0f}, 0.45f, 4.0f, 0.3f);
+			Check(!carvedAir && snow.GetActiveTrackCount() == 0, "airborne body does not carve phantom snow tracks");
+			world.DestroyBody(flying);
+
+			glm::vec2 prevXZ(sled.Position.x, sled.Position.z);
+			for (int tick = 0; tick < 60; ++tick)
+			{
+				world.ApplySnowInteraction(body, snow, prevXZ, 0.65f, 4.0f, 0.30f);
+				prevXZ = {world.GetBodyState(body).Position.x, world.GetBodyState(body).Position.z};
+				world.StepFixed();
+			}
+			return std::pair{world.GetBodyState(body), snow};
+		};
+
+		const auto [powderState, powderSnow] = runSnowSlide(0.55f, 0.0f);
+		const auto [powderReplay, powderSnowReplay] = runSnowSlide(0.55f, 0.0f);
+		const auto [iceState, iceSnow] = runSnowSlide(0.05f, 0.9f);
+		(void)iceSnow;
+
+		Check(powderState.LinearVelocity.x < iceState.LinearVelocity.x - 0.5f &&
+				  powderState.Position.x < iceState.Position.x - 0.5f,
+			  "deep uncompressed snow creates stronger drag than slick ice");
+		Check(powderSnow.GetActiveTrackCount() > 5 && powderSnow.Sample({-8.0f, 0.0f}).Compression > 0.1f,
+			  "sliding rigid body leaves continuous snow tracks behind it");
+		Check(powderState.Position == powderReplay.Position &&
+				  powderState.LinearVelocity == powderReplay.LinearVelocity && powderSnow == powderSnowReplay,
+			  "snow-coupled physics replay is bit-identical");
+	}
+
 } // namespace
 
 int main()
@@ -542,6 +690,7 @@ int main()
 		TestSleepingNeighborChanges();
 		TestOrderedCollisionReplay();
 		TestValidationAndTeardown();
+		TestCapsulesHeightfieldsAndSnowPhysics();
 	}
 	catch (const std::exception& exception)
 	{
