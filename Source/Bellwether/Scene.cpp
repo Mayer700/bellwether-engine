@@ -221,9 +221,14 @@ namespace Bellwether
 		return result;
 	}
 
-	static void ReadEntity(Entity& entity, const Json& data)
+	static void ReadEntity(Entity& entity, const Json& data, bool allowID = true)
 	{
-		ValidateFields(data, {"ID", "Name", "Transform", "Script", "Model"});
+		if (allowID)
+			ValidateFields(data, {"ID", "Name", "Transform", "Script", "Model"});
+		else
+			ValidateFields(data, {"Name", "Transform", "Script", "Model"});
+		if (!data.at("Name").is_string())
+			throw std::invalid_argument("Entity name must be a string");
 		entity.Name = data.at("Name").get<std::string>();
 		if (entity.Name.empty() || entity.Name.size() > 1024)
 			throw std::invalid_argument("Invalid entity name");
@@ -234,11 +239,19 @@ namespace Bellwether
 		entity.Transform.Scale = ReadVector(transform.at("Scale"));
 		if (glm::any(glm::lessThanEqual(glm::abs(entity.Transform.Scale), glm::vec3(0.00001f))))
 			throw std::invalid_argument("Transform scale must be invertible");
-		entity.Script = data.value("Script", "");
+		entity.Script.clear();
+		if (data.contains("Script"))
+		{
+			if (!data["Script"].is_string())
+				throw std::invalid_argument("Script path must be a string");
+			entity.Script = data["Script"].get<std::string>();
+		}
 		entity.ModelAsset.clear();
 		if (data.contains("Model"))
 		{
 			ValidateFields(data.at("Model"), {"Asset"});
+			if (!data.at("Model").at("Asset").is_string())
+				throw std::invalid_argument("Model asset path must be a string");
 			entity.ModelAsset = data.at("Model").at("Asset").get<std::string>();
 			ValidateModelAssetPath(entity.ModelAsset);
 		}
@@ -267,9 +280,25 @@ namespace Bellwether
 		}
 		if (data.contains("NextID"))
 		{
-			if (!data["NextID"].is_number_integer() || data["NextID"].get<int64_t>() <= 0)
+			const auto& nextValue = data["NextID"];
+			if (!nextValue.is_number_integer() || nextValue.is_number_float())
 				throw std::invalid_argument("Invalid next entity ID");
-			candidate.m_NextID = std::max(candidate.m_NextID, data["NextID"].get<EntityID>());
+			EntityID parsedNext = 0;
+			if (nextValue.is_number_unsigned())
+			{
+				auto value = nextValue.get<uint64_t>();
+				if (value == 0 || value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()))
+					throw std::invalid_argument("Invalid next entity ID");
+				parsedNext = static_cast<EntityID>(value);
+			}
+			else
+			{
+				auto value = nextValue.get<int64_t>();
+				if (value <= 0)
+					throw std::invalid_argument("Invalid next entity ID");
+				parsedNext = static_cast<EntityID>(value);
+			}
+			candidate.m_NextID = std::max(candidate.m_NextID, parsedNext);
 		}
 		*this = std::move(candidate);
 	}
@@ -281,7 +310,11 @@ namespace Bellwether
 		Scene candidate = *this;
 		for (const auto& command : commands)
 		{
-			auto operation = command.at("Operation").get<std::string>();
+			if (!command.is_object())
+				throw std::invalid_argument("Scene command must be an object");
+			if (!command.contains("Operation") || !command["Operation"].is_string())
+				throw std::invalid_argument("Scene command requires a string Operation");
+			auto operation = command["Operation"].get<std::string>();
 			if (operation == "SetRendererSettings")
 			{
 				ValidateFields(command, {"Operation", "Settings"});
@@ -295,7 +328,9 @@ namespace Bellwether
 			else if (operation == "Create")
 			{
 				ValidateFields(command, {"Operation", "Name", "Translation"});
-				auto id = candidate.CreateEntity(command.at("Name"));
+				if (!command.at("Name").is_string())
+					throw std::invalid_argument("Entity name must be a string");
+				auto id = candidate.CreateEntity(command.at("Name").get<std::string>());
 				if (command.contains("Translation"))
 					candidate.GetEntity(id).Transform.Translation = ReadVector(command["Translation"]);
 			}
@@ -312,12 +347,14 @@ namespace Bellwether
 					{"Name", entity.Name}, {"Transform", command.at("Transform")}, {"Script", entity.Script}};
 				if (!entity.ModelAsset.empty())
 					replacement["Model"] = {{"Asset", entity.ModelAsset}};
-				ReadEntity(entity, replacement);
+				ReadEntity(entity, replacement, false);
 			}
 			else if (operation == "SetModel")
 			{
 				ValidateFields(command, {"Operation", "ID", "Asset"});
 				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
+				if (!command.at("Asset").is_string())
+					throw std::invalid_argument("Model asset path must be a string");
 				auto asset = command.at("Asset").get<std::string>();
 				ValidateModelAssetPath(asset);
 				entity.ModelAsset = std::move(asset);
@@ -326,6 +363,8 @@ namespace Bellwether
 			{
 				ValidateFields(command, {"Operation", "ID", "Name"});
 				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
+				if (!command.at("Name").is_string())
+					throw std::invalid_argument("Entity name must be a string");
 				auto name = command.at("Name").get<std::string>();
 				if (name.empty() || name.size() > 1024)
 					throw std::invalid_argument("Invalid entity name");
@@ -349,9 +388,11 @@ namespace Bellwether
 
 	EntityID Scene::SpawnPrefab(const Json& prefab)
 	{
+		if (!prefab.is_object() || !prefab.contains("Name") || !prefab["Name"].is_string())
+			throw std::invalid_argument("Prefab requires a string Name");
 		Scene candidate = *this;
-		auto id = candidate.CreateEntity(prefab.at("Name"));
-		ReadEntity(candidate.GetEntity(id), prefab);
+		auto id = candidate.CreateEntity(prefab["Name"].get<std::string>());
+		ReadEntity(candidate.GetEntity(id), prefab, false);
 		*this = std::move(candidate);
 		return id;
 	}

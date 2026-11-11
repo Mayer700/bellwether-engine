@@ -94,11 +94,17 @@ namespace Bellwether
 		char errorMessage[512] = {};
 		// Lua argument checks occur before C++ objects with destructors enter scope.
 		if (operation == 0 || operation == 7)
-			text = luaL_checkstring(state, 1);
+		{
+			luaL_checktype(state, 1, LUA_TSTRING);
+			text = lua_tostring(state, 1);
+		}
 		else
 			id = luaL_checkinteger(state, 1);
 		if (operation == 6)
-			text = luaL_checkstring(state, 2);
+		{
+			luaL_checktype(state, 2, LUA_TSTRING);
+			text = lua_tostring(state, 2);
+		}
 		if (operation == 3)
 		{
 			x = luaL_checknumber(state, 2);

@@ -70,6 +70,10 @@ namespace Bellwether
 
 	Json ReadJson(const std::filesystem::path& path)
 	{
+		if (!std::filesystem::exists(path))
+			throw std::runtime_error("JSON file does not exist: " + path.string());
+		if (!std::filesystem::is_regular_file(path))
+			throw std::runtime_error("JSON path is not a regular file: " + path.string());
 		if (std::filesystem::file_size(path) > 64 * 1024 * 1024)
 			throw std::runtime_error("JSON file exceeds the 64 MiB document limit");
 		std::ifstream input(path, std::ios::binary);
@@ -80,6 +84,8 @@ namespace Bellwether
 
 	void AtomicWrite(const std::filesystem::path& path, const std::string& contents)
 	{
+		if (std::filesystem::is_directory(path))
+			throw std::runtime_error("Cannot overwrite directory with file: " + path.string());
 		if (!path.parent_path().empty())
 			std::filesystem::create_directories(path.parent_path());
 		static std::atomic<uint64_t> s_Sequence{0};

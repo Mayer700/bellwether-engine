@@ -444,6 +444,12 @@ namespace Bellwether
 				  description);
 		};
 		auto invalid = fixture;
+		invalid["draws"][0]["mesh"] = -1;
+		rejectAsset(invalid, "negative mesh index rejects without replacing the loaded world");
+		invalid = fixture;
+		invalid["draws"][0]["color"] = Json::array({1, 0});
+		rejectAsset(invalid, "truncated color array rejects without replacing the loaded world");
+		invalid = fixture;
 		invalid["draws"][0]["color"][0] = 2;
 		rejectAsset(invalid, "out-of-range albedo rejects without replacing the loaded world");
 		invalid = fixture;

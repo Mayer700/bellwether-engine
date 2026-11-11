@@ -270,10 +270,20 @@ namespace Bellwether
 			if (!entry.at("visible").get<bool>())
 				continue;
 			Instance instance;
-			if (!entry.at("mesh").is_number_unsigned() && !entry.at("mesh").is_number_integer())
+			const auto& meshValue = entry.at("mesh");
+			if (!meshValue.is_number_integer() || meshValue.is_number_float())
 				throw std::runtime_error("Mesh instance index must be integral");
-			instance.MeshIndex = entry.at("mesh");
-			if (instance.MeshIndex >= sourceMeshes.size() || entry.at("matrix").size() != 16)
+			if (meshValue.is_number_unsigned())
+				instance.MeshIndex = meshValue.get<size_t>();
+			else
+			{
+				auto meshIndex = meshValue.get<int64_t>();
+				if (meshIndex < 0)
+					throw std::runtime_error("Mesh instance index cannot be negative");
+				instance.MeshIndex = static_cast<size_t>(meshIndex);
+			}
+			if (instance.MeshIndex >= sourceMeshes.size() || !entry.at("matrix").is_array() ||
+				entry.at("matrix").size() != 16)
 				throw std::runtime_error("Invalid mesh instance");
 			for (int column = 0; column < 4; column++)
 				for (int row = 0; row < 4; row++)
@@ -288,9 +298,11 @@ namespace Bellwether
 			if (instance.Transform[0][3] != 0 || instance.Transform[1][3] != 0 || instance.Transform[2][3] != 0 ||
 				instance.Transform[3][3] != 1)
 				throw std::runtime_error("Mesh transforms must be affine");
+			const auto& color = entry.at("color");
+			if (!color.is_array() || (color.size() != 3 && color.size() != 4))
+				throw std::runtime_error("Mesh color must have 3 or 4 components");
 			instance.AlbedoRoughness =
-				glm::vec4(ReadVector(Json::array({entry.at("color")[0], entry.at("color")[1], entry.at("color")[2]})),
-						  entry.at("roughness").get<float>());
+				glm::vec4(ReadVector(Json::array({color[0], color[1], color[2]})), entry.at("roughness").get<float>());
 			instance.EmissionMetallic = glm::vec4(ReadVector(entry.at("emission")), entry.at("metallic").get<float>());
 			if (glm::any(glm::lessThan(glm::vec3(instance.AlbedoRoughness), glm::vec3(0))) ||
 				glm::any(glm::greaterThan(glm::vec3(instance.AlbedoRoughness), glm::vec3(1))) ||
@@ -318,18 +330,36 @@ namespace Bellwether
 		std::vector<float> vertices;
 		std::vector<uint32_t> indices;
 		vertices.reserve(gridSize * gridSize * 8);
-		auto sample = [&](int x, int z)
-		{ return heights[size_t(std::clamp(z, 0, size - 1)) * size + std::clamp(x, 0, size - 1)]; };
+		auto sampleHeight = [&](float u, float v)
+		{
+			float fx = std::clamp(u, 0.f, 1.f) * float(size - 1);
+			float fz = std::clamp(v, 0.f, 1.f) * float(size - 1);
+			int x0 = std::min(int(std::floor(fx)), size - 1);
+			int z0 = std::min(int(std::floor(fz)), size - 1);
+			int x1 = std::min(x0 + 1, size - 1);
+			int z1 = std::min(z0 + 1, size - 1);
+			float tx = fx - float(x0);
+			float tz = fz - float(z0);
+			float h00 = heights[size_t(z0) * size + x0];
+			float h10 = heights[size_t(z0) * size + x1];
+			float h01 = heights[size_t(z1) * size + x0];
+			float h11 = heights[size_t(z1) * size + x1];
+			return glm::mix(glm::mix(h00, h10, tx), glm::mix(h01, h11, tx), tz);
+		};
+		float uvStep = 1.f / float(size - 1);
+		float normalScale = 2.f * extent / float(size - 1);
 		for (int z = 0; z < gridSize; z++)
 		{
+			float v = z / float(gridSize - 1);
 			for (int x = 0; x < gridSize; x++)
 			{
-				int hx = x * (size - 1) / (gridSize - 1), hz = z * (size - 1) / (gridSize - 1);
-				auto normal = glm::normalize(glm::vec3(sample(hx - 1, hz) - sample(hx + 1, hz), 2 * extent / size,
-													   sample(hx, hz - 1) - sample(hx, hz + 1)));
-				vertices.insert(vertices.end(), {x * extent / (gridSize - 1) - extent / 2, sample(hx, hz),
-												 z * extent / (gridSize - 1) - extent / 2, normal.x, normal.y, normal.z,
-												 x / float(gridSize - 1), z / float(gridSize - 1)});
+				float u = x / float(gridSize - 1);
+				float h = sampleHeight(u, v);
+				auto normal =
+					glm::normalize(glm::vec3(sampleHeight(u - uvStep, v) - sampleHeight(u + uvStep, v), normalScale,
+											 sampleHeight(u, v - uvStep) - sampleHeight(u, v + uvStep)));
+				vertices.insert(vertices.end(), {u * extent - extent / 2, h, v * extent - extent / 2, normal.x,
+												 normal.y, normal.z, u, v});
 			}
 		}
 		for (uint32_t z = 0; z < gridSize - 1; z++)

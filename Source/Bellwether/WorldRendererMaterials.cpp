@@ -30,43 +30,50 @@ namespace Bellwether
 											.setDebugName("Model texture"));
 			if (!texture)
 				throw std::runtime_error("Cannot allocate model texture");
-			auto pixels = image.Pixels;
-			uint32_t width = image.Width, height = image.Height;
-			for (uint32_t mip = 0; mip < mipLevels; mip++)
+			if (mipLevels == 1)
 			{
-				commands->writeTexture(texture, 0, mip, pixels.data(), width * 4);
-				if (mip + 1 == mipLevels)
-					break;
-				uint32_t nextWidth = std::max(1u, width / 2), nextHeight = std::max(1u, height / 2);
-				std::vector<uint8_t> next(size_t(nextWidth) * nextHeight * 4);
-				for (uint32_t y = 0; y < nextHeight; y++)
-					for (uint32_t x = 0; x < nextWidth; x++)
-						for (uint32_t channel = 0; channel < 4; channel++)
-						{
-							float sum = 0;
-							uint32_t count = 0;
-							for (uint32_t sourceY = y * height / nextHeight; sourceY < (y + 1) * height / nextHeight;
-								 sourceY++)
-								for (uint32_t sourceX = x * width / nextWidth; sourceX < (x + 1) * width / nextWidth;
-									 sourceX++)
-								{
-									float value = pixels[(size_t(sourceY) * width + sourceX) * 4 + channel] / 255.f;
-									if (srgb && channel < 3)
-										value = value <= .04045f ? value / 12.92f
-																 : std::pow((value + .055f) / 1.055f, 2.4f);
-									sum += value;
-									count++;
-								}
-							float value = sum / count;
-							if (srgb && channel < 3)
-								value =
-									value <= .0031308f ? value * 12.92f : 1.055f * std::pow(value, 1 / 2.4f) - .055f;
-							next[(size_t(y) * nextWidth + x) * 4 + channel] =
-								uint8_t(std::clamp(std::lround(value * 255), 0l, 255l));
-						}
-				pixels = std::move(next);
-				width = nextWidth;
-				height = nextHeight;
+				commands->writeTexture(texture, 0, 0, image.Pixels.data(), image.Width * 4);
+			}
+			else
+			{
+				auto pixels = image.Pixels;
+				uint32_t width = image.Width, height = image.Height;
+				for (uint32_t mip = 0; mip < mipLevels; mip++)
+				{
+					commands->writeTexture(texture, 0, mip, pixels.data(), width * 4);
+					if (mip + 1 == mipLevels)
+						break;
+					uint32_t nextWidth = std::max(1u, width / 2), nextHeight = std::max(1u, height / 2);
+					std::vector<uint8_t> next(size_t(nextWidth) * nextHeight * 4);
+					for (uint32_t y = 0; y < nextHeight; y++)
+						for (uint32_t x = 0; x < nextWidth; x++)
+							for (uint32_t channel = 0; channel < 4; channel++)
+							{
+								float sum = 0;
+								uint32_t count = 0;
+								for (uint32_t sourceY = y * height / nextHeight;
+									 sourceY < (y + 1) * height / nextHeight; sourceY++)
+									for (uint32_t sourceX = x * width / nextWidth;
+										 sourceX < (x + 1) * width / nextWidth; sourceX++)
+									{
+										float value = pixels[(size_t(sourceY) * width + sourceX) * 4 + channel] / 255.f;
+										if (srgb && channel < 3)
+											value = value <= .04045f ? value / 12.92f
+																	 : std::pow((value + .055f) / 1.055f, 2.4f);
+										sum += value;
+										count++;
+									}
+								float value = sum / count;
+								if (srgb && channel < 3)
+									value = value <= .0031308f ? value * 12.92f
+															   : 1.055f * std::pow(value, 1 / 2.4f) - .055f;
+								next[(size_t(y) * nextWidth + x) * 4 + channel] =
+									uint8_t(std::clamp(std::lround(value * 255), 0l, 255l));
+							}
+					pixels = std::move(next);
+					width = nextWidth;
+					height = nextHeight;
+				}
 			}
 			textures.emplace(key, texture);
 			return texture;

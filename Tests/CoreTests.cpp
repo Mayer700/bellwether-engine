@@ -103,6 +103,18 @@ int main(int argumentCount, char** arguments)
 		invalid = snapshot;
 		invalid["Format"] = 999;
 		Rejects([&] { restored.Deserialize(invalid); }, "unknown scene format rejected");
+		invalid = snapshot;
+		invalid["NextID"] = static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) + 1;
+		Rejects([&] { restored.Deserialize(invalid); }, "overflowing NextID rejected");
+		invalid = snapshot;
+		invalid["Entities"][0]["Script"] = 42;
+		Rejects([&] { restored.Deserialize(invalid); }, "non-string Script rejected");
+		Rejects([&] { ReadJson(outputDirectory / "DoesNotExist.json"); }, "missing JSON rejected before file_size");
+		Rejects([&] { ReadJson(outputDirectory); }, "directory JSON read rejected");
+		Rejects([&] { AtomicWrite(outputDirectory, "oops"); }, "AtomicWrite refuses directory overwrite");
+		Rejects([&] { scene.ApplyCommands(Json::array({42})); }, "non-object scene command rejected");
+		Rejects([&] { scene.ApplyCommands(Json::array({{{"Operation", "Create"}, {"Name", 99}}})); },
+				"non-string Create Name rejected");
 		Rejects([&] { scene.ApplyCommands(Json::array({{{"Operation", "NotImplemented"}}})); },
 				"unsupported agent operations reject explicitly");
 		Rejects([&] { scene.ApplyCommands(Json::array({{{"Operation", "Destroy"}, {"ID", 2.1}}})); },
@@ -224,6 +236,9 @@ int main(int argumentCount, char** arguments)
 		Check(prefabID != modelID && modelScene.GetEntity(prefabID).ModelAsset == "ModelFixtures/Materials.glb",
 			  "prefab preserves model with fresh entity identity");
 		auto prefabCheckpoint = modelScene.Serialize();
+		auto prefabWithID = prefabCheckpoint["Entities"][0];
+		Rejects([&] { modelScene.SpawnPrefab(prefabWithID); }, "prefab rejects conflicting ID field");
+		Check(modelScene.Serialize() == prefabCheckpoint, "rejected ID prefab leaves scene unchanged");
 		modelPrefab["Model"]["Asset"] = "../Outside.glb";
 		Rejects([&] { modelScene.SpawnPrefab(modelPrefab); }, "prefab rejects malformed model asset");
 		Check(modelScene.Serialize() == prefabCheckpoint, "invalid model prefab rolls back entity and ID allocation");
@@ -266,6 +281,7 @@ int main(int argumentCount, char** arguments)
 		Check(!runtime.Update(std::numeric_limits<double>::quiet_NaN(), error), "NaN timestep rejected");
 		for (const auto& source :
 			 {"Engine.SetPosition(9999, 1, 2, 3)", "Engine.CreateEntity('rolled back'); error('failure')",
+			  "Engine.CreateEntity(123)", "local id = Engine.CreateEntity('ok'); Engine.Rename(id, 456)",
 			  "Engine.SetPosition(1, 0/0, 0, 0)", "Engine.CreateEntity('loop'); while true do end",
 			  "Engine.CreateEntity('')", "local excessive = string.rep('a', 32 * 1024 * 1024)"})
 		{

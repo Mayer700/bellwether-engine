@@ -226,6 +226,11 @@ namespace Bellwether
 			for (auto semaphore : PresentSemaphores)
 				Device.destroySemaphore(semaphore);
 			PresentSemaphores.clear();
+			if (Swapchain)
+			{
+				Device.destroySwapchainKHR(Swapchain);
+				Swapchain = nullptr;
+			}
 			auto capabilities = PhysicalDevice.getSurfaceCapabilitiesKHR(Surface);
 			int width = 0, height = 0;
 			glfwGetFramebufferSize(Window, &width, &height);
@@ -235,6 +240,8 @@ namespace Bellwether
 												 capabilities.maxImageExtent.width),
 									  std::clamp(static_cast<uint32_t>(height), capabilities.minImageExtent.height,
 												 capabilities.maxImageExtent.height));
+			if (!Extent.width || !Extent.height)
+				return;
 			auto formats = PhysicalDevice.getSurfaceFormatsKHR(Surface);
 			auto selected = std::find_if(formats.begin(), formats.end(),
 										 [](const auto& format)
@@ -247,15 +254,12 @@ namespace Bellwether
 			uint32_t imageCount = std::max(2u, capabilities.minImageCount + 1);
 			if (capabilities.maxImageCount)
 				imageCount = std::min(imageCount, capabilities.maxImageCount);
-			auto oldSwapchain = Swapchain;
 			vk::SwapchainCreateInfoKHR descriptor(
 				{}, Surface, imageCount, selected->format, selected->colorSpace, Extent, 1,
 				vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst,
 				vk::SharingMode::eExclusive, 0, nullptr, capabilities.currentTransform,
-				vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, true, oldSwapchain);
+				vk::CompositeAlphaFlagBitsKHR::eOpaque, vk::PresentModeKHR::eFifo, true, nullptr);
 			Swapchain = Device.createSwapchainKHR(descriptor);
-			if (oldSwapchain)
-				Device.destroySwapchainKHR(oldSwapchain);
 			Depth = Renderer->createTexture(nvrhi::TextureDesc()
 												.setWidth(Extent.width)
 												.setHeight(Extent.height)
@@ -299,8 +303,13 @@ namespace Bellwether
 				glfwWaitEventsTimeout(0.05);
 				return false;
 			}
-			if (static_cast<uint32_t>(width) != Extent.width || static_cast<uint32_t>(height) != Extent.height)
+			if (!Swapchain || static_cast<uint32_t>(width) != Extent.width ||
+				static_cast<uint32_t>(height) != Extent.height)
+			{
 				CreateSwapchain();
+				if (!Swapchain)
+					return false;
+			}
 			auto index = FrameIndex % 2;
 			if (Submitted[index])
 			{
