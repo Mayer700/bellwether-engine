@@ -16,7 +16,7 @@ u_Camera;
 layout(push_constant) uniform ParticlePush
 {
 	vec4 VolumeCenter;
-	vec4 Params; // x = aspect, y = intensity, z = boxHeight, w = particleCount
+	vec4 Params; // x = aspect, y = cameraSize, z = boxHeight, w = particleCount
 }
 u_Push;
 
@@ -93,8 +93,10 @@ void main()
 	vec2 forwardIso = length(deltaIso) > 1e-4 ? normalize(deltaIso) : vec2(0.0, -1.0);
 	vec2 rightIso = vec2(-forwardIso.y, forwardIso.x);
 
-	float stretch = clamp(1.0 + length(deltaIso) * 18.0, 1.0, 3.0);
-	float baseRadius = (0.0085 + 0.0115 * seed.y) / max(clipCenter.w * 0.045, 0.55);
+	float stretch = clamp(1.0 + length(deltaIso) * (max(u_Push.Params.y, 4.0) * 0.8), 1.0, 2.8);
+	float ndcPerMeterY = 2.0 / max(u_Push.Params.y, 4.0);
+	float worldRadius = 0.065 + 0.055 * seed.y;
+	float baseRadius = worldRadius * ndcPerMeterY;
 
 	vec2 offsetIso = rightIso * (local.x * baseRadius) + forwardIso * (local.y * baseRadius * stretch);
 	vec2 offsetNDC = vec2(offsetIso.x / aspect, offsetIso.y);

@@ -449,6 +449,8 @@ namespace Bellwether
 		candidate->Load(directory);
 		std::cout << "WORLD_INSTANCES " << candidate->GetDrawCount() << '\n';
 		m_Implementation->World = std::move(candidate);
+		m_Implementation->HasInteractiveSnow = false;
+		m_Implementation->PreviewTime = 0.0f;
 	}
 
 	void VulkanContext::LoadModel(const std::filesystem::path& path)
@@ -459,6 +461,8 @@ namespace Bellwether
 		candidate->LoadModel(path);
 		std::cout << "MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
 		m_Implementation->World = std::move(candidate);
+		m_Implementation->HasInteractiveSnow = false;
+		m_Implementation->PreviewTime = 0.0f;
 	}
 
 	void VulkanContext::LoadScene(const std::filesystem::path& path)
@@ -471,6 +475,8 @@ namespace Bellwether
 		candidate->LoadScene(scene, std::filesystem::absolute(path).parent_path());
 		std::cout << "SCENE_MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
 		m_Implementation->World = std::move(candidate);
+		m_Implementation->HasInteractiveSnow = false;
+		m_Implementation->PreviewTime = 0.0f;
 	}
 
 	void VulkanContext::CaptureWorld(const std::filesystem::path& output)
@@ -571,6 +577,8 @@ namespace Bellwether
 		if (!m_Implementation->World)
 			throw std::logic_error("Load a world before updating the snowfield");
 		m_Implementation->World->UpdateSnowField(snow);
+		m_Implementation->InteractiveSnow = snow;
+		m_Implementation->HasInteractiveSnow = true;
 	}
 
 	void VulkanContext::ClearSnowField()
@@ -578,6 +586,7 @@ namespace Bellwether
 		if (!m_Implementation->World)
 			throw std::logic_error("Load a world before clearing the snowfield");
 		m_Implementation->World->ClearSnowField();
+		m_Implementation->HasInteractiveSnow = false;
 	}
 
 	void VulkanContext::SetTimeSeconds(float seconds)
@@ -602,42 +611,42 @@ namespace Bellwether
 		const float panSpeed = std::max(4.0f, settings.CameraSize * 0.75f);
 		if (keyDown(GLFW_KEY_W) || keyDown(GLFW_KEY_UP))
 		{
-			settings.CameraTarget.z -= panSpeed * dt;
+			settings.CameraTarget.z = std::clamp(settings.CameraTarget.z - panSpeed * dt, -99000.0f, 99000.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_S) || keyDown(GLFW_KEY_DOWN))
 		{
-			settings.CameraTarget.z += panSpeed * dt;
+			settings.CameraTarget.z = std::clamp(settings.CameraTarget.z + panSpeed * dt, -99000.0f, 99000.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_A) || keyDown(GLFW_KEY_LEFT))
 		{
-			settings.CameraTarget.x -= panSpeed * dt;
+			settings.CameraTarget.x = std::clamp(settings.CameraTarget.x - panSpeed * dt, -99000.0f, 99000.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_D) || keyDown(GLFW_KEY_RIGHT))
 		{
-			settings.CameraTarget.x += panSpeed * dt;
+			settings.CameraTarget.x = std::clamp(settings.CameraTarget.x + panSpeed * dt, -99000.0f, 99000.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_Q))
 		{
-			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f + 0.8f * dt), 2.0f, 500.0f);
+			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f + 0.8f * dt), 4.0f, 200.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_E))
 		{
-			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f - 0.8f * dt), 2.0f, 500.0f);
+			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f - 0.8f * dt), 4.0f, 200.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_1))
 		{
-			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity - 0.8f * dt, 0.0f, 2.0f);
+			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity - 0.8f * dt, 0.0f, 1.0f);
 			settingsChanged = true;
 		}
 		if (keyDown(GLFW_KEY_2))
 		{
-			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity + 0.8f * dt, 0.0f, 2.0f);
+			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity + 0.8f * dt, 0.0f, 1.0f);
 			settingsChanged = true;
 		}
 		if (settingsChanged)
@@ -646,6 +655,11 @@ namespace Bellwether
 			impl.World->SetSettings(settings);
 		}
 		const bool spaceDown = keyDown(GLFW_KEY_SPACE);
+		if (!impl.HasInteractiveSnow && impl.World->HasSnowField())
+		{
+			impl.InteractiveSnow = impl.World->GetSnowField();
+			impl.HasInteractiveSnow = true;
+		}
 		bool snowChanged = false;
 		if (spaceDown && !impl.SpaceWasDown)
 		{
@@ -665,9 +679,11 @@ namespace Bellwether
 		impl.SpaceWasDown = spaceDown;
 		if (impl.HasInteractiveSnow && settings.SnowfallIntensity > 0.01f)
 		{
+			const uint64_t mutationBefore = impl.InteractiveSnow.GetMutationCounter();
 			impl.InteractiveSnow.StepWeather(dt, settings.SnowfallIntensity * 0.15f,
 											 glm::vec2(settings.WindVelocity.x, settings.WindVelocity.z));
-			snowChanged = true;
+			if (impl.InteractiveSnow.GetMutationCounter() != mutationBefore)
+				snowChanged = true;
 		}
 		if (snowChanged)
 			impl.World->UpdateSnowField(impl.InteractiveSnow);

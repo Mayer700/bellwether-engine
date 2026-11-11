@@ -687,13 +687,13 @@ namespace Bellwether
 								  std::filesystem::copy_options::overwrite_existing);
 		std::vector<uint8_t> depthBytes(256u * 256u, 255u);
 		std::vector<uint8_t> iceBytes(256u * 256u, 0u);
-		for (uint32_t y = 96; y < 160; y++)
+		for (uint32_t y = 123; y < 144; y++)
 		{
-			for (uint32_t x = 104; x < 152; x++)
+			for (uint32_t x = 125; x < 130; x++)
 			{
 				const size_t idx = size_t(y) * 256u + x;
-				depthBytes[idx] = 24u;
-				iceBytes[idx] = 220u;
+				depthBytes[idx] = 28u;
+				iceBytes[idx] = 230u;
 			}
 		}
 		{
@@ -725,6 +725,85 @@ namespace Bellwether
 		check(bridged.Pixels != virgin.Pixels, "bridged depth.u8/ice.u8 track renders distinct ice trail");
 		writePpm(outputDirectory / "SnowBridge.ppm", bridged, width, height);
 		std::filesystem::remove_all(bridgeDir);
+
+		// Verify WorldRenderer::LoadScene with SnowSettings.Enabled + RenderGround + .bwsn TracksAsset + rollback
+		{
+			const std::filesystem::path sceneDir = outputDirectory / "SnowSceneTemp";
+			std::filesystem::remove_all(sceneDir);
+			std::filesystem::create_directories(sceneDir / "Tracks");
+
+			SceneSnowSettings sceneSnowCfg;
+			sceneSnowCfg.Enabled = true;
+			sceneSnowCfg.RenderGround = true;
+			sceneSnowCfg.Resolution = 128;
+			sceneSnowCfg.WorldExtent = 64.0f;
+			sceneSnowCfg.BaseDepth = 0.48f;
+			sceneSnowCfg.MaxDepth = 1.5f;
+
+			SnowField authoredSnow(sceneSnowCfg.ToFieldConfig());
+			authoredSnow.StampSegment({-8.0f, 0.0f}, {8.0f, 0.0f}, 1.4f, 0.40f);
+			authoredSnow.StampSegment({0.0f, -8.0f}, {0.0f, 8.0f}, 1.1f, 0.36f);
+			authoredSnow.ApplyHeatSource({-4.0f, 4.0f}, 2.2f, 18.0f, 0.8f);
+			authoredSnow.StepWeather(1.5f, 0.0f, {0.0f, 0.0f}, -15.0f);
+			authoredSnow.SaveTracks(sceneDir / "Tracks/Trail.bwsn");
+
+			RenderSettings sceneRender;
+			sceneRender.Shadows = true;
+			sceneRender.CameraTarget = {0.0f, 0.0f, 0.0f};
+			sceneRender.CameraSize = 20.0f;
+			sceneRender.SnowCoverage = 1.0f;
+			sceneRender.SnowSparkle = 0.6f;
+			sceneRender.SnowSubsurface = 0.8f;
+			sceneRender.SnowfallIntensity = 0.35f;
+			sceneRender.WindVelocity = {4.0f, 0.0f, -1.5f};
+
+			Scene virginScene;
+			virginScene.SetRenderSettings(sceneRender);
+			virginScene.SetSnowSettings(sceneSnowCfg);
+			world.LoadScene(virginScene, sceneDir);
+			auto sceneVirgin = RenderCapture(device, world, width, height);
+			check(linearFinite(sceneVirgin) && world.HasSnowField() && world.GetDrawCount() >= 1,
+				  "LoadScene builds synthetic RenderGround snow surface");
+
+			Scene trackedScene = virginScene;
+			sceneSnowCfg.TracksAsset = "Tracks/Trail.bwsn";
+			trackedScene.SetSnowSettings(sceneSnowCfg);
+			world.LoadScene(trackedScene, sceneDir);
+			auto sceneTracked = RenderCapture(device, world, width, height);
+			check(linearFinite(sceneTracked) && sceneTracked.Pixels != sceneVirgin.Pixels &&
+					  averageLuma(sceneTracked) > 0.35,
+				  "LoadScene loads .bwsn TracksAsset and renders distinct snow trails");
+			writePpm(outputDirectory / "SnowScene.ppm", sceneTracked, width, height);
+
+			const size_t drawCountBefore = world.GetDrawCount();
+			auto tryRejectedLoad = [&](const std::string& badAsset)
+			{
+				try
+				{
+					Scene bad = trackedScene;
+					auto badSnow = bad.GetSnowSettings();
+					badSnow.TracksAsset = badAsset;
+					bad.SetSnowSettings(badSnow);
+					world.LoadScene(bad, sceneDir);
+					return false;
+				}
+				catch (const std::exception&)
+				{
+					return true;
+				}
+			};
+			check(tryRejectedLoad("Tracks/Missing.bwsn"), "LoadScene rejects missing .bwsn TracksAsset");
+			{
+				std::ofstream corrupt(sceneDir / "Tracks/Corrupt.bwsn", std::ios::binary);
+				corrupt << "BWSN_CORRUPT";
+			}
+			check(tryRejectedLoad("Tracks/Corrupt.bwsn"), "LoadScene rejects corrupt .bwsn TracksAsset");
+			check(tryRejectedLoad("../Escape.bwsn"), "scene pipeline rejects path-escaping .bwsn TracksAsset");
+			auto afterReject = RenderCapture(device, world, width, height);
+			check(world.GetDrawCount() == drawCountBefore && afterReject.Pixels == sceneTracked.Pixels,
+				  "rejected LoadScene snow asset preserves previous GPU scene and snowfield");
+			std::filesystem::remove_all(sceneDir);
+		}
 
 		// Verify clean recovery when clearing snowfield back to bare baseline
 		world.Load(fixtureDirectory);

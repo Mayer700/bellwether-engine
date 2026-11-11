@@ -16,6 +16,14 @@ namespace Bellwether
 		void LoadScene(const Scene& scene, const std::filesystem::path& assetRoot);
 		void UpdateSnowField(const SnowField& snow);
 		void ClearSnowField();
+		bool HasSnowField() const
+		{
+			return m_HasSnowMap;
+		}
+		const SnowField& GetSnowField() const
+		{
+			return m_SnowField;
+		}
 		void SetTimeSeconds(float timeSeconds);
 		void Render(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer, uint32_t width, uint32_t height);
 		void SetSettings(const RenderSettings& settings);
@@ -114,6 +122,7 @@ namespace Bellwether
 		float m_SnowWorldExtent = 0.0f;
 		float m_SnowMaxDepth = 1.0f;
 		float m_TimeSeconds = 0.0f;
+		SnowField m_SnowField;
 		static constexpr uint32_t s_ShadowResolution = 2048;
 		RenderSettings m_Settings;
 		std::vector<Mesh> m_Meshes;

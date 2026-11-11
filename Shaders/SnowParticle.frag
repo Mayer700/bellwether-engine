@@ -22,10 +22,10 @@ layout(location = 0) out vec4 o_Color;
 
 void main()
 {
-	float radial = length(vec2(v_LocalUV.x, v_LocalUV.y / max(1.0, sqrt(v_Stretch))));
-	float softCore = smoothstep(1.0, 0.12, radial);
+	float radial = length(vec2(v_LocalUV.x, v_LocalUV.y / max(1.0, v_Stretch * 0.75)));
+	float softCore = smoothstep(1.0, 0.25, radial);
 	float intensity = clamp(u_Camera.SnowParameters.w, 0.0, 2.0);
-	float alpha = softCore * v_EdgeFade * clamp(0.42 + 0.36 * intensity, 0.0, 0.92);
+	float alpha = softCore * v_EdgeFade * clamp(0.55 + 0.35 * intensity, 0.0, 0.94);
 	if (alpha < 0.01)
 		discard;
 

@@ -31,14 +31,15 @@ layout(location=3) out vec4 v_Tangent;
 layout(location=4) out vec4 v_Color;
 void main()
 {
-    vec3 displacedPosition = a_Position;
+    vec4 worldPosition = u_Object.Transform * vec4(a_Position, 1.0);
     if (u_Object.SurfaceFlags.x > 0.5 && u_Camera.WindParameters.w > 0.5 && u_Camera.RenderParameters.z > 0.0)
     {
-        vec2 snowUV = clamp(a_Position.xz / u_Camera.RenderParameters.z + 0.5, vec2(0.0), vec2(1.0));
+        vec2 rawUV = clamp(worldPosition.xz / u_Camera.RenderParameters.z + 0.5, vec2(0.0), vec2(1.0));
+        vec2 snowSize = vec2(textureSize(sampler2D(u_SnowMap, u_SnowSampler), 0));
+        vec2 snowUV = (rawUV * max(snowSize - 1.0, vec2(1.0)) + 0.5) / max(snowSize, vec2(1.0));
         float effectiveDepth = textureLod(sampler2D(u_SnowMap, u_SnowSampler), snowUV, 0.0).r * u_Camera.RenderParameters.w;
-        displacedPosition.y += effectiveDepth * 0.65;
+        worldPosition.y += effectiveDepth * 0.65;
     }
-    vec4 worldPosition = u_Object.Transform * vec4(displacedPosition, 1.0);
     v_WorldPosition = worldPosition.xyz;
     v_Normal = normalize(transpose(inverse(mat3(u_Object.Transform))) * a_Normal);
     v_TexCoord = a_TexCoord;

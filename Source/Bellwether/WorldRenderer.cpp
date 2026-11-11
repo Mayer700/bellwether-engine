@@ -247,6 +247,7 @@ namespace Bellwether
 			RebuildFrameBindings();
 		}
 		m_HasSnowMap = true;
+		m_SnowField = snow;
 		m_SnowWorldExtent = snow.GetConfig().WorldExtent;
 		m_SnowMaxDepth = snow.GetConfig().MaxDepth;
 	}
@@ -713,12 +714,13 @@ namespace Bellwether
 				.setViewport(
 					nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(float(width), float(height))));
 			commands->setGraphicsState(particleState);
+			const float boxXZ = std::clamp(m_Settings.CameraSize * 1.9f, 24.0f, 320.0f);
 			struct ParticlePush
 			{
 				glm::vec4 VolumeCenter;
 				glm::vec4 Params;
-			} push{glm::vec4(m_Settings.CameraTarget, 42.0f),
-				   glm::vec4(float(width) / float(height), m_Settings.SnowfallIntensity, 18.0f, float(particleCount))};
+			} push{glm::vec4(m_Settings.CameraTarget, boxXZ),
+				   glm::vec4(float(width) / float(height), m_Settings.CameraSize, 18.0f, float(particleCount))};
 			commands->setPushConstants(&push, sizeof(push));
 			commands->draw(nvrhi::DrawArguments().setVertexCount(6).setInstanceCount(particleCount));
 		}

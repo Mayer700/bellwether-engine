@@ -53,6 +53,7 @@ namespace Bellwether
 		std::string Name;
 		size_t Primitive = 0;
 		glm::mat4 Transform{1};
+		glm::vec4 SurfaceFlags{0};
 	};
 
 	struct ModelAsset

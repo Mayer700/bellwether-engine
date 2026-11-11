@@ -152,7 +152,27 @@ namespace Bellwether
 	void WorldRenderer::LoadScene(const Scene& scene, const std::filesystem::path& assetRoot)
 	{
 		scene.GetRenderSettings().Validate();
+		const auto& snowSettings = scene.GetSnowSettings();
+		snowSettings.Validate();
 		auto root = std::filesystem::weakly_canonical(assetRoot);
+		SnowField validatedSnow;
+		if (snowSettings.Enabled)
+		{
+			validatedSnow.Reset(snowSettings.ToFieldConfig());
+			if (!snowSettings.TracksAsset.empty())
+			{
+				ValidateSnowTracksAssetPath(snowSettings.TracksAsset);
+				auto relative = std::filesystem::path(
+					std::u8string(reinterpret_cast<const char8_t*>(snowSettings.TracksAsset.data()),
+								  snowSettings.TracksAsset.size()));
+				auto tracksPath = std::filesystem::weakly_canonical(root / relative);
+				auto prefix = std::mismatch(root.begin(), root.end(), tracksPath.begin(), tracksPath.end());
+				if (prefix.first != root.end())
+					throw std::invalid_argument("Scene snow tracks link escapes its asset root");
+				validatedSnow.LoadTracks(tracksPath);
+			}
+		}
+
 		ModelAsset merged;
 		struct CachedModel
 		{
@@ -232,26 +252,63 @@ namespace Bellwether
 				merged.Placements.push_back(std::move(placement));
 			}
 		}
+		if (snowSettings.Enabled && snowSettings.RenderGround)
+		{
+			if (merged.Materials.size() + 1 > 16384 || merged.Primitives.size() + 1 > 50000 ||
+				merged.Placements.size() + 1 > 100000)
+				throw std::invalid_argument("Scene snow ground exceeds render resource budget");
+			constexpr uint32_t groundGrid = 129;
+			ModelPrimitive groundPrimitive;
+			groundPrimitive.Material = merged.Materials.size();
+			groundPrimitive.Vertices.reserve(static_cast<size_t>(groundGrid) * groundGrid);
+			groundPrimitive.Indices.reserve(static_cast<size_t>(groundGrid - 1) * (groundGrid - 1) * 6);
+			const float extent = snowSettings.WorldExtent;
+			const float halfExtent = extent * 0.5f;
+			for (uint32_t z = 0; z < groundGrid; z++)
+			{
+				float v = static_cast<float>(z) / static_cast<float>(groundGrid - 1);
+				float wz = v * extent - halfExtent;
+				for (uint32_t x = 0; x < groundGrid; x++)
+				{
+					float u = static_cast<float>(x) / static_cast<float>(groundGrid - 1);
+					float wx = u * extent - halfExtent;
+					ModelVertex vertex;
+					vertex.Position = {wx, 0.0f, wz};
+					vertex.Normal = {0.0f, 1.0f, 0.0f};
+					vertex.TexCoord = {u, v};
+					vertex.Tangent = {1.0f, 0.0f, 0.0f, 1.0f};
+					vertex.Color = {1.0f, 1.0f, 1.0f, 1.0f};
+					groundPrimitive.Vertices.push_back(vertex);
+				}
+			}
+			for (uint32_t z = 0; z < groundGrid - 1; z++)
+			{
+				for (uint32_t x = 0; x < groundGrid - 1; x++)
+				{
+					uint32_t idx = z * groundGrid + x;
+					groundPrimitive.Indices.insert(
+						groundPrimitive.Indices.end(),
+						{idx, idx + groundGrid, idx + 1, idx + 1, idx + groundGrid, idx + groundGrid + 1});
+				}
+			}
+			ModelMaterial groundMaterial;
+			groundMaterial.Name = "SnowGround";
+			groundMaterial.BaseColor = {0.28f, 0.30f, 0.34f, 1.0f};
+			groundMaterial.Roughness = 0.88f;
+			groundMaterial.Metallic = 0.0f;
+			merged.Materials.push_back(std::move(groundMaterial));
+			const size_t primitiveIndex = merged.Primitives.size();
+			merged.Primitives.push_back(std::move(groundPrimitive));
+			ModelPlacement groundPlacement;
+			groundPlacement.Name = "SnowGround";
+			groundPlacement.Primitive = primitiveIndex;
+			groundPlacement.SurfaceFlags = {1.0f, 0.0f, 0.0f, 0.0f};
+			merged.Placements.push_back(std::move(groundPlacement));
+		}
 		UploadModel(merged);
 		m_Settings = scene.GetRenderSettings();
-		const auto& snowSettings = scene.GetSnowSettings();
 		if (snowSettings.Enabled)
-		{
-			SnowField snow(snowSettings.ToFieldConfig());
-			if (!snowSettings.TracksAsset.empty())
-			{
-				ValidateSnowTracksAssetPath(snowSettings.TracksAsset);
-				auto relative = std::filesystem::path(
-					std::u8string(reinterpret_cast<const char8_t*>(snowSettings.TracksAsset.data()),
-								  snowSettings.TracksAsset.size()));
-				auto tracksPath = std::filesystem::weakly_canonical(root / relative);
-				auto prefix = std::mismatch(root.begin(), root.end(), tracksPath.begin(), tracksPath.end());
-				if (prefix.first != root.end())
-					throw std::invalid_argument("Scene snow tracks link escapes its asset root");
-				snow.LoadTracks(tracksPath);
-			}
-			UpdateSnowField(snow);
-		}
+			UpdateSnowField(validatedSnow);
 		else
 			ClearSnowField();
 	}
@@ -276,6 +333,7 @@ namespace Bellwether
 			instance.Transform = placement.Transform;
 			instance.AlbedoRoughness = {glm::vec3(material.BaseColor), material.Roughness};
 			instance.EmissionMetallic = {material.Emission, material.Metallic};
+			instance.SurfaceFlags = placement.SurfaceFlags;
 			instances.push_back(instance);
 		}
 		commands->close();

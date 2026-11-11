@@ -107,15 +107,20 @@ void main()
     float localSnowMask = 0.0;
     float iceFraction = 0.0;
 
+    float trenchAO = 1.0;
+
     if (snowActive)
     {
         float slopeCover = smoothstep(0.35, 0.85, normal.y);
         if (u_Object.SurfaceFlags.x > 0.5 && hasSnowMap)
         {
-            vec2 snowUV = clamp(v_WorldPosition.xz / u_Camera.RenderParameters.z + 0.5, vec2(0.0), vec2(1.0));
+            vec2 rawUV = clamp(v_WorldPosition.xz / u_Camera.RenderParameters.z + 0.5, vec2(0.0), vec2(1.0));
+            vec2 snowSize = vec2(textureSize(sampler2D(u_SnowMap, u_SnowSampler), 0));
+            vec2 snowUV = (rawUV * max(snowSize - 1.0, vec2(1.0)) + 0.5) / max(snowSize, vec2(1.0));
             vec4 snowState = texture(sampler2D(u_SnowMap, u_SnowSampler), snowUV);
-            vec2 snowTexel = 1.0 / vec2(textureSize(sampler2D(u_SnowMap, u_SnowSampler), 0));
+            vec2 snowTexel = 1.0 / max(snowSize, vec2(1.0));
             float cellWorld = u_Camera.RenderParameters.z * snowTexel.x;
+            float hC = snowState.r * u_Camera.RenderParameters.w;
             float hL = texture(sampler2D(u_SnowMap, u_SnowSampler), snowUV - vec2(snowTexel.x, 0.0)).r * u_Camera.RenderParameters.w;
             float hR = texture(sampler2D(u_SnowMap, u_SnowSampler), snowUV + vec2(snowTexel.x, 0.0)).r * u_Camera.RenderParameters.w;
             float hD = texture(sampler2D(u_SnowMap, u_SnowSampler), snowUV - vec2(0.0, snowTexel.y)).r * u_Camera.RenderParameters.w;
@@ -126,9 +131,11 @@ void main()
             float coverage = snowState.a;
             float compression = clamp(snowState.g * 3.0, 0.0, 1.0);
             iceFraction = snowState.b;
+            float bermBoost = clamp((hC - min(min(hL, hR), min(hD, hU))) * 4.5, 0.0, 0.25);
+            trenchAO = mix(1.0, 0.76, compression * (1.0 - iceFraction));
 
             vec3 bareRock = mix(albedo * 0.45, vec3(0.18, 0.20, 0.24), 0.65);
-            vec3 virginPowder = vec3(0.91, 0.95, 1.00);
+            vec3 virginPowder = vec3(0.91, 0.95, 1.00) + vec3(0.04, 0.05, 0.06) * bermBoost;
             vec3 packedTrail = vec3(0.58, 0.72, 0.88);
             vec3 snowAlbedo = mix(virginPowder, packedTrail, compression * 0.78);
             vec3 iceAlbedo = vec3(0.46, 0.70, 0.89);
@@ -145,7 +152,10 @@ void main()
         }
         else if (u_Camera.SnowParameters.x > 0.001)
         {
-            float meshSnow = slopeCover * u_Camera.SnowParameters.x;
+            float windLen = length(u_Camera.WindParameters.xz);
+            vec2 windDir = windLen > 0.05 ? u_Camera.WindParameters.xz / windLen : vec2(0.0);
+            float windwardBias = windLen > 0.05 ? max(0.0, dot(normalize(vec3(normal.x, 0.0, normal.z) + vec3(0.0, 0.001, 0.0)).xz, -windDir)) : 0.0;
+            float meshSnow = clamp((slopeCover + windwardBias * 0.18 * (1.0 - slopeCover)) * u_Camera.SnowParameters.x, 0.0, 1.0);
             albedo = mix(albedo, vec3(0.89, 0.94, 0.99), meshSnow);
             roughness = mix(roughness, 0.80, meshSnow);
             metallic = mix(metallic, 0.0, meshSnow);
@@ -170,7 +180,7 @@ void main()
     vec3 reflection = mix(vec3(.04),albedo,metallic);
     vec3 fresnel = reflection+(1.-reflection)*pow(1.-max(dot(halfwayDirection,viewDirection),0.),5.);
     vec3 specular = distribution*geometry*fresnel/(4.*normalLight*normalView+.001);
-    vec3 ambient = albedo*mix(vec3(.10,.15,.23),vec3(.32,.43,.59),normal.y*.5+.5);
+    vec3 ambient = albedo*mix(vec3(.10,.15,.23),vec3(.32,.43,.59),normal.y*.5+.5) * trenchAO;
     ambient *= mix(1.,texture(sampler2D(u_Occlusion,u_OcclusionSampler),v_TexCoord).r,u_Material.Parameters.y);
     float sunVis = SunVisibility(v_WorldPosition,normal);
     vec3 color = ambient+((1.-fresnel)*(1.-metallic)*albedo/Pi+specular)*u_Camera.SunRadianceFog.rgb*normalLight*sunVis;
@@ -186,12 +196,15 @@ void main()
         }
         if (u_Camera.SnowParameters.y > 0.001)
         {
-            vec3 cell = floor(v_WorldPosition * 28.0);
-            vec3 rnd = Hash33(cell) * 2.0 - 1.0;
-            vec3 crystalNormal = normalize(normal + rnd * 0.42);
-            float glintTerm = pow(max(dot(crystalNormal, halfwayDirection), 0.0), 96.0);
-            float crystalGate = step(0.45, Hash33(cell + 17.3).x);
-            color += vec3(1.4, 1.5, 1.75) * glintTerm * crystalGate * sunVis * u_Camera.SunRadianceFog.rgb * localSnowMask * u_Camera.SnowParameters.y;
+            vec3 cell = floor(v_WorldPosition * 48.0);
+            vec3 h = Hash33(cell);
+            float activeCrystal = step(0.915, h.x);
+            vec3 rnd = Hash33(cell + 19.7) * 2.0 - 1.0;
+            vec3 crystalNormal = normalize(halfwayDirection * 0.55 + normal * 0.45 + rnd * 0.35);
+            float align = max(dot(crystalNormal, halfwayDirection), 0.0);
+            float glintTerm = pow(align, 220.0) * smoothstep(0.955, 0.996, align);
+            float viewSpark = step(0.82, fract(h.y * 13.37 + dot(viewDirection, vec3(0.37, 0.53, 0.71))));
+            color += vec3(3.4, 3.7, 4.3) * glintTerm * activeCrystal * viewSpark * sunVis * u_Camera.SunRadianceFog.rgb * localSnowMask * u_Camera.SnowParameters.y;
         }
     }
 
