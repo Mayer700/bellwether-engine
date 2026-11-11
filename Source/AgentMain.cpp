@@ -89,17 +89,24 @@ int main(int argumentCount, char** arguments)
 			{
 				Bellwether::SnowFieldConfig config;
 				double res = ParseFiniteArg(arguments[7], "resolution");
-				if (res < 4.0 || res > 2048.0 || std::floor(res) != res)
-					throw std::invalid_argument("Snow resolution must be an integer in [4, 2048]");
+				if (res < 4.0 || res > 1024.0 || std::floor(res) != res)
+					throw std::invalid_argument("Snow resolution must be an integer in [4, 1024]");
 				config.Resolution = static_cast<uint32_t>(res);
 				config.WorldExtent = static_cast<float>(ParseFiniteArg(arguments[8], "worldExtent"));
 				config.BaseDepth = static_cast<float>(ParseFiniteArg(arguments[9], "baseDepth"));
 				snow.Reset(config);
 			}
-			snow.StampCircle(glm::vec2(static_cast<float>(wx), static_cast<float>(wz)), static_cast<float>(radius),
-							 static_cast<float>(depth));
+			else
+			{
+				throw std::invalid_argument(
+					"Snow tracks file does not exist; pass [resolution worldExtent baseDepth] to create it");
+			}
+			bool stamped = snow.StampCircle(glm::vec2(static_cast<float>(wx), static_cast<float>(wz)),
+											static_cast<float>(radius), static_cast<float>(depth));
 			snow.SaveTracks(tracksPath);
-			std::cout << SerializeSnowSummary(snow).dump(2) << '\n';
+			auto summary = SerializeSnowSummary(snow);
+			summary["Stamped"] = stamped;
+			std::cout << summary.dump(2) << '\n';
 			return 0;
 		}
 		if (command == "step-snow")

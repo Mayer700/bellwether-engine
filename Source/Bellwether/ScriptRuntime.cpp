@@ -63,7 +63,11 @@ namespace Bellwether
 				"MeltSnow",
 				"SetWind",
 				"GetWind",
-				"SetSnowfall"};
+				"SetSnowfall",
+				"GetSnowIce",
+				"GetSnowFriction",
+				"StampSnowSegment",
+				"StepSnowWeather"};
 	}
 
 	ScriptRuntime::ScriptRuntime(Scene& scene, SnowField* snow) : m_Scene(scene), m_Snow(snow)
@@ -110,7 +114,7 @@ namespace Bellwether
 		auto operation = lua_tointeger(state, lua_upvalueindex(2));
 		const char* text = nullptr;
 		lua_Integer id = 0;
-		double x = 0, y = 0, z = 0, w = 0, extra = 0;
+		double x = 0, y = 0, z = 0, w = 0, extra = 0, x2 = 0, z2 = 0;
 		bool hasY = false, hasZ = false, hasW = false;
 		char errorMessage[512] = {};
 		// Lua argument checks occur before C++ objects with destructors enter scope.
@@ -123,7 +127,7 @@ namespace Bellwether
 		{
 			// No arguments required.
 		}
-		else if (operation >= 13 && operation <= 15)
+		else if ((operation >= 13 && operation <= 15) || operation == 21 || operation == 22)
 		{
 			x = luaL_checknumber(state, 1);
 			z = luaL_checknumber(state, 2);
@@ -154,6 +158,28 @@ namespace Bellwether
 			hasW = !lua_isnoneornil(state, 4);
 			if (hasW)
 				w = luaL_checknumber(state, 4);
+		}
+		else if (operation == 23)
+		{
+			x = luaL_checknumber(state, 1);
+			z = luaL_checknumber(state, 2);
+			x2 = luaL_checknumber(state, 3);
+			z2 = luaL_checknumber(state, 4);
+			y = luaL_checknumber(state, 5);
+			w = luaL_checknumber(state, 6);
+			extra = lua_isnoneornil(state, 7) ? 0.35 : luaL_checknumber(state, 7);
+		}
+		else if (operation == 24)
+		{
+			x = luaL_checknumber(state, 1);
+			y = luaL_checknumber(state, 2);
+			if (!lua_isnoneornil(state, 3) || !lua_isnoneornil(state, 4))
+			{
+				hasY = true;
+				z = luaL_checknumber(state, 3);
+				w = luaL_checknumber(state, 4);
+			}
+			extra = lua_isnoneornil(state, 5) ? -6.0 : luaL_checknumber(state, 5);
 		}
 		else
 			id = luaL_checkinteger(state, 1);
@@ -337,6 +363,31 @@ namespace Bellwether
 				scene.SetRenderSettings(candidate);
 				return 0;
 			}
+			case 21:
+				lua_pushnumber(state, requireSnow().Sample(requireXZ(x, z)).Ice);
+				return 1;
+			case 22:
+				lua_pushnumber(state, requireSnow().Sample(requireXZ(x, z)).FrictionFactor);
+				return 1;
+			case 23:
+			{
+				if (!std::isfinite(y) || y <= 0.0 || y > 100.0 || !std::isfinite(w) || w < 0.0 || w > 50.0 ||
+					!std::isfinite(extra) || extra < 0.0 || extra > 1.0)
+					throw std::invalid_argument("Invalid snow segment stamp radius, depth, or rim factor");
+				bool stamped = requireSnow().StampSegment(requireXZ(x, z), requireXZ(x2, z2), static_cast<float>(y),
+														  static_cast<float>(w), static_cast<float>(extra));
+				lua_pushboolean(state, stamped);
+				return 1;
+			}
+			case 24:
+			{
+				const auto& sceneWind = scene.GetRenderSettings().WindVelocity;
+				glm::vec2 wind = hasY ? glm::vec2(static_cast<float>(z), static_cast<float>(w))
+									  : glm::vec2(sceneWind.x, sceneWind.z);
+				requireSnow().StepWeather(static_cast<float>(x), static_cast<float>(y), wind,
+										  static_cast<float>(extra));
+				return 0;
+			}
 			}
 		}
 		catch (const std::exception& exception)
@@ -348,8 +399,8 @@ namespace Bellwether
 		return lua_error(state);
 	}
 
-	bool ScriptRuntime::FinishCall(int result, const Scene& checkpoint, const SnowField& snowCheckpoint,
-								   bool hasSnowCheckpoint, std::string& error)
+	bool ScriptRuntime::FinishCall(int result, const Scene& checkpoint, const std::optional<SnowField>& snowCheckpoint,
+								   std::string& error)
 	{
 		lua_sethook(m_State, nullptr, 0, 0);
 		if (result != LUA_OK)
@@ -358,8 +409,8 @@ namespace Bellwether
 			error = message ? message : "Unknown script error";
 			lua_pop(m_State, 1);
 			m_Scene = checkpoint;
-			if (hasSnowCheckpoint && m_Snow)
-				m_Snow->Restore(snowCheckpoint);
+			if (snowCheckpoint.has_value() && m_Snow)
+				m_Snow->Restore(*snowCheckpoint);
 			m_Faulted = true;
 			return false;
 		}
@@ -375,13 +426,14 @@ namespace Bellwether
 			return false;
 		}
 		Scene checkpoint = m_Scene;
-		const bool hasSnowCheckpoint = (m_Snow != nullptr);
-		SnowField snowCheckpoint = hasSnowCheckpoint ? m_Snow->Snapshot() : SnowField{};
+		std::optional<SnowField> snowCheckpoint;
+		if (m_Snow)
+			snowCheckpoint = m_Snow->Snapshot();
 		lua_sethook(m_State, InstructionLimit, LUA_MASKCOUNT, 1000000);
 		int result = luaL_loadbufferx(m_State, source.data(), source.size(), "SceneScript", "t");
 		if (result == LUA_OK)
 			result = lua_pcall(m_State, 0, 0, 0);
-		return FinishCall(result, checkpoint, snowCheckpoint, hasSnowCheckpoint, error);
+		return FinishCall(result, checkpoint, snowCheckpoint, error);
 	}
 
 	bool ScriptRuntime::Update(double timestep, std::string& error)
@@ -392,8 +444,9 @@ namespace Bellwether
 			return false;
 		}
 		Scene checkpoint = m_Scene;
-		const bool hasSnowCheckpoint = (m_Snow != nullptr);
-		SnowField snowCheckpoint = hasSnowCheckpoint ? m_Snow->Snapshot() : SnowField{};
+		std::optional<SnowField> snowCheckpoint;
+		if (m_Snow)
+			snowCheckpoint = m_Snow->Snapshot();
 		lua_getglobal(m_State, "OnUpdate");
 		if (lua_isnil(m_State, -1))
 		{
@@ -403,7 +456,7 @@ namespace Bellwether
 		}
 		lua_pushnumber(m_State, timestep);
 		lua_sethook(m_State, InstructionLimit, LUA_MASKCOUNT, 1000000);
-		return FinishCall(lua_pcall(m_State, 1, 0, 0), checkpoint, snowCheckpoint, hasSnowCheckpoint, error);
+		return FinishCall(lua_pcall(m_State, 1, 0, 0), checkpoint, snowCheckpoint, error);
 	}
 
 } // namespace Bellwether

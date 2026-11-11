@@ -26,6 +26,7 @@ namespace Bellwether
 		float MaxDepth = 2.0f;
 		float TrackHealRate = 0.08f;
 		float WindDriftStrength = 0.25f;
+		bool RenderGround = false;
 		std::string TracksAsset;
 
 		void Validate() const;
@@ -41,6 +42,7 @@ namespace Bellwether
 		glm::vec3 Rotation{0.0f};
 		glm::vec3 Scale{1.0f};
 		glm::mat4 GetMatrix() const;
+		bool operator==(const TransformComponent&) const = default;
 	};
 
 	struct PhysicsComponent

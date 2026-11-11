@@ -169,6 +169,8 @@ namespace Bellwether
 					   {"MaxDepth", MaxDepth},
 					   {"TrackHealRate", TrackHealRate},
 					   {"WindDriftStrength", WindDriftStrength}};
+		if (RenderGround)
+			result["RenderGround"] = true;
 		if (!TracksAsset.empty())
 			result["TracksAsset"] = TracksAsset;
 		return result;
@@ -177,13 +179,19 @@ namespace Bellwether
 	SceneSnowSettings SceneSnowSettings::Deserialize(const Json& value)
 	{
 		ValidateFields(value, {"Enabled", "Resolution", "WorldExtent", "BaseDepth", "MaxDepth", "TrackHealRate",
-							   "WindDriftStrength", "TracksAsset"});
+							   "WindDriftStrength", "RenderGround", "TracksAsset"});
 		SceneSnowSettings settings;
 		if (value.contains("Enabled"))
 		{
 			if (!value["Enabled"].is_boolean())
 				throw std::invalid_argument("Snow Enabled must be boolean");
 			settings.Enabled = value["Enabled"].get<bool>();
+		}
+		if (value.contains("RenderGround"))
+		{
+			if (!value["RenderGround"].is_boolean())
+				throw std::invalid_argument("Snow RenderGround must be boolean");
+			settings.RenderGround = value["RenderGround"].get<bool>();
 		}
 		if (value.contains("Resolution"))
 		{

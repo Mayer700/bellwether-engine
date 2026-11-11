@@ -314,8 +314,9 @@ int main(int argumentCount, char** arguments)
 		ScriptRuntime runtime(featureScene, &featureSnow);
 		Check(runtime.Execute(script, error), "entire Lua API feature scene: " + error);
 		Check(featureSnow.GetActiveTrackCount() > 0 && featureSnow.Sample({0.0f, 0.0f}).EffectiveDepth < 0.5f &&
-				  featureSnow.Sample({3.0f, 3.0f}).EffectiveDepth < 0.5f,
-			  "Lua snow stamping and melting mutate bound snowfield");
+				  featureSnow.Sample({3.0f, 3.0f}).EffectiveDepth < 0.5f &&
+				  featureSnow.Sample({0.0f, -2.0f}).Compression > 0.05f,
+			  "Lua snow stamping, segment stamping, and melting mutate bound snowfield");
 		Check(featureScene.GetRenderSettings().WindVelocity.x == 4.5f &&
 				  featureScene.GetRenderSettings().SnowfallIntensity == 0.85f,
 			  "Lua wind and snowfall updates mutate render settings");
@@ -324,16 +325,28 @@ int main(int argumentCount, char** arguments)
 		Check(featureScene.GetEntity(ids.back()).Transform.Translation.x == 0.25f, "Lua update changes scene");
 		Check(!runtime.Update(-1, error), "invalid timestep rejected");
 		Check(!runtime.Update(std::numeric_limits<double>::quiet_NaN(), error), "NaN timestep rejected");
-		for (const auto& source :
-			 {"Engine.SetPosition(9999, 1, 2, 3)", "Engine.CreateEntity('rolled back'); error('failure')",
-			  "Engine.CreateEntity(123)", "local id = Engine.CreateEntity('ok'); Engine.Rename(id, 456)",
-			  "Engine.SetPosition(1, 0/0, 0, 0)", "Engine.CreateEntity('loop'); while true do end",
-			  "Engine.CreateEntity('')", "local excessive = string.rep('a', 32 * 1024 * 1024)",
-			  "Engine.SetScale(1, 0, 1, 1)", "Engine.SetRotation(1, 0/0, 0, 0)",
-			  "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.SetWind(4, 0, 0); error('snow rollback')",
-			  "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.StampSnow(0, 0, -1, 0.2)", "Engine.MeltSnow(0, 0, 1, -5, 0.5)",
-			  "Engine.SetWind(500, 0, 0)", "Engine.SetSnowfall(-0.2)",
-			  "Engine.StampSnow(0, 0, 1.5, 0.3); while true do end"})
+		for (const auto& source : {"Engine.SetPosition(9999, 1, 2, 3)",
+								   "Engine.CreateEntity('rolled back'); error('failure')",
+								   "Engine.CreateEntity(123)",
+								   "local id = Engine.CreateEntity('ok'); Engine.Rename(id, 456)",
+								   "Engine.SetPosition(1, 0/0, 0, 0)",
+								   "Engine.CreateEntity('loop'); while true do end",
+								   "Engine.CreateEntity('')",
+								   "local excessive = string.rep('a', 32 * 1024 * 1024)",
+								   "Engine.SetScale(1, 0, 1, 1)",
+								   "Engine.SetRotation(1, 0/0, 0, 0)",
+								   "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.SetWind(4, 0, 0); error('snow rollback')",
+								   "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.StampSnow(0, 0, -1, 0.2)",
+								   "Engine.MeltSnow(0, 0, 1, -5, 0.5)",
+								   "Engine.StampSnowSegment(0, 0, 1, 1, -0.5, 0.2)",
+								   "Engine.StepSnowWeather(1.0, 0.5, 2.0)",
+								   "Engine.StepSnowWeather(-0.5, 0.1)",
+								   "Engine.GetPosition(9999)",
+								   "Engine.GetRotation(9999)",
+								   "Engine.GetScale(9999)",
+								   "Engine.SetWind(500, 0, 0)",
+								   "Engine.SetSnowfall(-0.2)",
+								   "Engine.StampSnow(0, 0, 1.5, 0.3); while true do end"})
 		{
 			Scene test = featureScene;
 			SnowField testSnow = featureSnow.Snapshot();
@@ -345,9 +358,11 @@ int main(int argumentCount, char** arguments)
 			Check(testSnow == beforeSnow, "Lua error rolls back snowfield mutations");
 			Check(!failing.Update(0.1, error), "faulted Lua runtime cannot continue");
 		}
-		for (const auto& missingSnowOp : {"Engine.SetWind(2, 0, 0); return Engine.GetSnowDepth(0, 0)",
-										  "Engine.StampSnow(0, 0, 1, 0.2)", "Engine.MeltSnow(0, 0, 1, 10, 0.5)",
-										  "Engine.GetSnowCompression(0, 0)", "Engine.GetSnowSpeedFactor(0, 0)"})
+		for (const auto& missingSnowOp :
+			 {"Engine.SetWind(2, 0, 0); return Engine.GetSnowDepth(0, 0)", "Engine.StampSnow(0, 0, 1, 0.2)",
+			  "Engine.MeltSnow(0, 0, 1, 10, 0.5)", "Engine.GetSnowCompression(0, 0)", "Engine.GetSnowSpeedFactor(0, 0)",
+			  "Engine.GetSnowIce(0, 0)", "Engine.GetSnowFriction(0, 0)",
+			  "Engine.StampSnowSegment(0, 0, 1, 1, 0.5, 0.2)", "Engine.StepSnowWeather(0.1, 0.2)"})
 		{
 			Scene test = featureScene;
 			auto before = test.Serialize();
@@ -361,7 +376,7 @@ int main(int argumentCount, char** arguments)
 							  "and loadfile == nil and pcall == nil and xpcall == nil)",
 							  error),
 			  "sandbox restricts host access and budget interception");
-		Check(ScriptRuntime::GetAPI().size() == 21, "script API manifest");
+		Check(ScriptRuntime::GetAPI().size() == 25, "script API manifest");
 		RenderSettings renderSettings;
 		Check(RenderSettings::Deserialize(renderSettings.Serialize()).Serialize() == renderSettings.Serialize(),
 			  "renderer settings roundtrip");
@@ -410,11 +425,12 @@ int main(int argumentCount, char** arguments)
 												  {"Resolution", 256},
 												  {"WorldExtent", 256.0},
 												  {"BaseDepth", 0.55},
+												  {"RenderGround", true},
 												  {"TracksAsset", "Tracks/Run.bwsn"}}}}}));
 		Check(winterScene.GetRenderSettings().SnowCoverage == 0.85f &&
 				  winterScene.GetRenderSettings().SnowfallIntensity == 0.6f &&
 				  winterScene.GetRenderSettings().WindVelocity.x == 5.5f && winterScene.GetSnowSettings().Enabled &&
-				  winterScene.GetSnowSettings().Resolution == 256 &&
+				  winterScene.GetSnowSettings().Resolution == 256 && winterScene.GetSnowSettings().RenderGround &&
 				  winterScene.GetSnowSettings().TracksAsset == "Tracks/Run.bwsn",
 			  "winter render and snowfield settings update via agent commands");
 		auto winterSnapshot = winterScene.Serialize();
@@ -432,6 +448,8 @@ int main(int argumentCount, char** arguments)
 		Check(winterScene.Serialize() == winterSnapshot, "invalid snow settings batch rolls back");
 		Rejects([&] { SceneSnowSettings::Deserialize(Json{{"Resolution", 128.5}}); },
 				"fractional snow resolution rejected");
+		Rejects([&] { SceneSnowSettings::Deserialize(Json{{"RenderGround", 123}}); },
+				"non-boolean RenderGround rejected");
 		Rejects([&] { SceneSnowSettings::Deserialize(Json{{"TracksAsset", "Tracks/Bad.json"}}); },
 				"non-.bwsn snow tracks extension rejected");
 		Rejects([&] { renderSettings.GetViewProjection(0); }, "camera rejects zero aspect");

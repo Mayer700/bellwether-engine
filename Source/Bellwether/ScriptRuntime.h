@@ -3,6 +3,8 @@
 #include "Scene.h"
 #include "SnowField.h"
 
+#include <optional>
+
 struct lua_State;
 
 namespace Bellwether
@@ -22,7 +24,7 @@ namespace Bellwether
 	  private:
 		static void* Allocate(void* userData, void* pointer, size_t oldSize, size_t newSize);
 		static int Invoke(lua_State* state);
-		bool FinishCall(int result, const Scene& checkpoint, const SnowField& snowCheckpoint, bool hasSnowCheckpoint,
+		bool FinishCall(int result, const Scene& checkpoint, const std::optional<SnowField>& snowCheckpoint,
 						std::string& error);
 		Scene& m_Scene;
 		SnowField* m_Snow = nullptr;
