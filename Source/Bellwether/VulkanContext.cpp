@@ -48,6 +48,10 @@ namespace Bellwether
 		uint32_t FrameIndex = 0;
 		unsigned Errors = 0;
 		std::string DeviceName;
+		float PreviewTime = 0.0f;
+		SnowField InteractiveSnow;
+		bool HasInteractiveSnow = false;
+		bool SpaceWasDown = false;
 
 		void message(nvrhi::MessageSeverity severity, const char* messageText) override
 		{
@@ -581,6 +585,92 @@ namespace Bellwether
 		if (!m_Implementation->World)
 			throw std::logic_error("Load a world before updating time");
 		m_Implementation->World->SetTimeSeconds(seconds);
+	}
+
+	void VulkanContext::StepInteractivePreview(float deltaSeconds)
+	{
+		auto& impl = *m_Implementation;
+		if (!impl.Window || !impl.World || !std::isfinite(deltaSeconds))
+			return;
+		const float dt = std::clamp(deltaSeconds, 0.0f, 0.1f);
+		impl.PreviewTime += dt;
+		impl.World->SetTimeSeconds(impl.PreviewTime);
+
+		auto keyDown = [&](int key) { return glfwGetKey(impl.Window, key) == GLFW_PRESS; };
+		RenderSettings settings = impl.World->GetSettings();
+		bool settingsChanged = false;
+		const float panSpeed = std::max(4.0f, settings.CameraSize * 0.75f);
+		if (keyDown(GLFW_KEY_W) || keyDown(GLFW_KEY_UP))
+		{
+			settings.CameraTarget.z -= panSpeed * dt;
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_S) || keyDown(GLFW_KEY_DOWN))
+		{
+			settings.CameraTarget.z += panSpeed * dt;
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_A) || keyDown(GLFW_KEY_LEFT))
+		{
+			settings.CameraTarget.x -= panSpeed * dt;
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_D) || keyDown(GLFW_KEY_RIGHT))
+		{
+			settings.CameraTarget.x += panSpeed * dt;
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_Q))
+		{
+			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f + 0.8f * dt), 2.0f, 500.0f);
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_E))
+		{
+			settings.CameraSize = std::clamp(settings.CameraSize * (1.0f - 0.8f * dt), 2.0f, 500.0f);
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_1))
+		{
+			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity - 0.8f * dt, 0.0f, 2.0f);
+			settingsChanged = true;
+		}
+		if (keyDown(GLFW_KEY_2))
+		{
+			settings.SnowfallIntensity = std::clamp(settings.SnowfallIntensity + 0.8f * dt, 0.0f, 2.0f);
+			settingsChanged = true;
+		}
+		if (settingsChanged)
+		{
+			settings.Validate();
+			impl.World->SetSettings(settings);
+		}
+		const bool spaceDown = keyDown(GLFW_KEY_SPACE);
+		bool snowChanged = false;
+		if (spaceDown && !impl.SpaceWasDown)
+		{
+			if (!impl.HasInteractiveSnow)
+			{
+				SnowFieldConfig config;
+				config.Resolution = 128;
+				config.WorldExtent = 64.0f;
+				config.BaseDepth = 0.45f;
+				config.MaxDepth = 1.5f;
+				impl.InteractiveSnow.Reset(config);
+				impl.HasInteractiveSnow = true;
+			}
+			impl.InteractiveSnow.StampCircle(glm::vec2(settings.CameraTarget.x, settings.CameraTarget.z), 1.6f, 0.30f);
+			snowChanged = true;
+		}
+		impl.SpaceWasDown = spaceDown;
+		if (impl.HasInteractiveSnow && settings.SnowfallIntensity > 0.01f)
+		{
+			impl.InteractiveSnow.StepWeather(dt, settings.SnowfallIntensity * 0.15f,
+											 glm::vec2(settings.WindVelocity.x, settings.WindVelocity.z));
+			snowChanged = true;
+		}
+		if (snowChanged)
+			impl.World->UpdateSnowField(impl.InteractiveSnow);
 	}
 
 	void VulkanContext::VerifyRenderer(const std::filesystem::path& outputDirectory,

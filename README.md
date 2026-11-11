@@ -35,9 +35,12 @@ BellwetherAgent create Project.bwscene
 BellwetherAgent inspect Project.bwscene
 BellwetherAgent apply Project.bwscene Commands.json
 BellwetherAgent validate Project.bwscene
+BellwetherAgent inspect-snow Tracks.bwsn
+BellwetherAgent stamp-snow Tracks.bwsn 0 0 2.0 0.35 128 64.0 0.45
+BellwetherAgent step-snow Tracks.bwsn 1.0 0.8 4.0 -1.5 -8.0
 ```
 
-`apply` accepts `Create`, `Destroy`, `Rename`, `SetTransform`, `SetModel` and `SetRendererSettings` command arrays. The entire batch validates before replacing the scene file. Responses are JSON and entity IDs remain stable. Unsupported fields/components/commands reject. Lua exposes eight tested entity/prefab/position methods and `OnUpdate(timestep)`; component lifecycle and the wider physics/render/audio API remain pending.
+`apply` accepts `Create`, `Destroy`, `Rename`, `SetTransform`, `SetModel`, `SetPhysics`, `SetRendererSettings` and `SetSnowSettings` command arrays. The entire batch validates before replacing the scene file. Responses are JSON and entity IDs remain stable. Unsupported fields/components/commands reject. Lua exposes 21 tested entity/transform/prefab/snow/weather methods and `OnUpdate(timestep)` with atomic `Scene` and `SnowField` rollback; component physics scripting, audio APIs and UI authoring panels remain pending.
 
 Static glTF/GLB assets can be validated with `BellwetherAgent inspect-model Models/Cabin.glb`, previewed with `BellwetherRuntime --gltf Models/Cabin.glb --settings Camera.json`, or attached to entities through `Model: {"Asset": "Models/Cabin.glb"}`. `BellwetherRuntime --scene Village.bwscene` resolves models relative to that scene, shares geometry and composes transforms. See [model import and materials](Docs/Models.md) for supported PBR texture roles, diagnostics and limits. The copied build `FeatureTest.bwscene` resolves its generated model fixture.
 
@@ -56,10 +59,10 @@ This read-only bridge resolves the original scene into `Engine/Cache/Bellwether`
 py -3 Tools/ConvertCapture.py Evidence/World.ppm Evidence/World.png
 ```
 
-The game content is not bundled into the engine repository. The bridge exports geometry, transforms, material constants, terrain and gameplay metadata. The native renderer displays the static world; actors, interactions, snow compression and chapter logic remain unported. Lighting uses linear RGBA16_FLOAT, two filtered sun-shadow maps and separate exposure/tone mapping. Direct static glTF import now supports textured PBR materials; HDRI IBL, SSAO and animated import remain required. See [renderer verification](Docs/Renderer.md) for scope and limits.
+The game content is not bundled into the engine repository. The bridge exports geometry, transforms, material constants, terrain, `depth.u8`/`ice.u8` snow layers and gameplay metadata. The native renderer displays static scenes with deformable snow displacement, ice/powder PBR blending, HDR crystal sparkle, subsurface scatter, and depth-tested wind-driven snowfall particles ([snow technology](Docs/SnowTechnology.md)); actors, interactions and chapter logic remain unported. Lighting uses linear RGBA16_FLOAT, two filtered sun-shadow maps and separate exposure/tone mapping. Direct static glTF import supports textured PBR materials; HDRI IBL, SSAO and animated import remain required. See [renderer verification](Docs/Renderer.md) for scope and limits.
 
-Renderer preferences are authored with `SetRendererSettings` and persisted in `.bwscene`. Combining `--world` or `--gltf` with `--scene` applies only that scene's renderer settings to the explicit content source. Using `--scene` alone renders its model entities. `--settings RenderSettings.json` accepts standalone preferences. Shaders load from `Shaders/` beside the executable, tested after runtime relocation.
+Renderer preferences are authored with `SetRendererSettings` and persisted in `.bwscene`. Combining `--world` or `--gltf` with `--scene` applies only that scene's renderer settings to the explicit content source. Using `--scene` alone renders its model entities and configured `SnowField`. `--settings RenderSettings.json` accepts standalone preferences. Shaders load from `Shaders/` beside the executable, tested after runtime relocation.
 
-A Jolt-backed [physics foundation](Docs/Physics.md) supplies fixed-step rigid bodies, collision filters and ray queries. Scene components, Lua bindings, character control and gameplay integration remain required work.
+A Jolt-backed [physics foundation](Docs/Physics.md) supplies fixed-step rigid bodies, capsule shapes, heightfields, `PhysicsComponent` scene sync, collision filters, snow-coupled track drag, and ray queries. Controllable actors, Lua physics bindings, and gameplay integration remain required work.
 
 Windows Debug and Release core and native GPU checks have run locally. The private source repository is [Mayer700/bellwether-engine](https://github.com/Mayer700/bellwether-engine). CI contains core build/test jobs for Windows, macOS and Ubuntu 24.04; remote results must be checked separately. macOS Vulkan/NVRHI compatibility is unverified.

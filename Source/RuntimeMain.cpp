@@ -67,10 +67,16 @@ int main(int argumentCount, char** arguments)
 		std::cout << "VULKAN_DEVICE " << context.GetDeviceName() << '\n';
 		unsigned frames = 0;
 		auto started = std::chrono::steady_clock::now();
+		auto previousFrame = started;
 		while (!context.ShouldClose() && (!test || frames < 12))
 		{
 			if (test && std::chrono::steady_clock::now() - started > std::chrono::seconds(30))
 				throw std::runtime_error("GPU regression exceeded 30 second deadline");
+			const auto now = std::chrono::steady_clock::now();
+			const float deltaSeconds = std::chrono::duration<float>(now - previousFrame).count();
+			previousFrame = now;
+			if (!test && worldTest)
+				context.StepInteractivePreview(deltaSeconds);
 			if (context.RenderFrame())
 				frames++;
 			if (test && frames == 4)
