@@ -132,9 +132,22 @@ namespace Bellwether
 			if (closeResult != 0)
 				throw std::runtime_error("Temporary file close failed");
 #if defined(_WIN32)
-			if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-				throw std::runtime_error("Cannot replace destination file, Win32 error " +
-										 std::to_string(GetLastError()));
+			bool replaced = false;
+			DWORD lastError = 0;
+			for (int attempt = 0; attempt < 8; attempt++)
+			{
+				if (MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+				{
+					replaced = true;
+					break;
+				}
+				lastError = GetLastError();
+				if (lastError != ERROR_ACCESS_DENIED && lastError != ERROR_SHARING_VIOLATION)
+					break;
+				Sleep(static_cast<DWORD>(attempt + 1));
+			}
+			if (!replaced)
+				throw std::runtime_error("Cannot replace destination file, Win32 error " + std::to_string(lastError));
 #else
 			std::filesystem::rename(temporary, path);
 			auto parent = path.parent_path().empty() ? std::filesystem::path(".") : path.parent_path();

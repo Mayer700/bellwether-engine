@@ -25,26 +25,6 @@ namespace Bellwether
 			return std::isfinite(value.x) && std::isfinite(value.y);
 		}
 
-		void ValidateConfig(const SnowFieldConfig& config)
-		{
-			if (config.Resolution < s_MinResolution || config.Resolution > s_MaxResolution)
-				throw std::invalid_argument("SnowField resolution must be between 4 and 1024");
-			if (!std::isfinite(config.WorldExtent) || config.WorldExtent <= 0.0f || config.WorldExtent > 100000.0f)
-				throw std::invalid_argument("SnowField WorldExtent must be finite and in (0, 100000]");
-			if (!std::isfinite(config.MaxDepth) || config.MaxDepth < 0.01f || config.MaxDepth > 100.0f)
-				throw std::invalid_argument("SnowField MaxDepth must be finite and in [0.01, 100]");
-			if (!std::isfinite(config.BaseDepth) || config.BaseDepth < 0.0f || config.BaseDepth > config.MaxDepth)
-				throw std::invalid_argument("SnowField BaseDepth must be in [0, MaxDepth]");
-			if (!std::isfinite(config.MinWalkableSpeedFactor) || config.MinWalkableSpeedFactor < 0.05f ||
-				config.MinWalkableSpeedFactor > 1.0f)
-				throw std::invalid_argument("SnowField MinWalkableSpeedFactor must be in [0.05, 1.0]");
-			if (!std::isfinite(config.TrackHealRate) || config.TrackHealRate < 0.0f || config.TrackHealRate > 100.0f)
-				throw std::invalid_argument("SnowField TrackHealRate must be in [0, 100]");
-			if (!std::isfinite(config.WindDriftStrength) || config.WindDriftStrength < 0.0f ||
-				config.WindDriftStrength > 100.0f)
-				throw std::invalid_argument("SnowField WindDriftStrength must be in [0, 100]");
-		}
-
 		float DistanceToSegmentSq(glm::vec2 point, glm::vec2 start, glm::vec2 end)
 		{
 			glm::vec2 delta = end - start;
@@ -123,6 +103,26 @@ namespace Bellwether
 			return t * t * (3.0f - 2.0f * t);
 		}
 	} // namespace
+
+	void SnowField::ValidateConfig(const SnowFieldConfig& config)
+	{
+		if (config.Resolution < s_MinResolution || config.Resolution > s_MaxResolution)
+			throw std::invalid_argument("SnowField resolution must be between 4 and 1024");
+		if (!std::isfinite(config.WorldExtent) || config.WorldExtent <= 0.0f || config.WorldExtent > 100000.0f)
+			throw std::invalid_argument("SnowField WorldExtent must be finite and in (0, 100000]");
+		if (!std::isfinite(config.MaxDepth) || config.MaxDepth < 0.01f || config.MaxDepth > 100.0f)
+			throw std::invalid_argument("SnowField MaxDepth must be finite and in [0.01, 100]");
+		if (!std::isfinite(config.BaseDepth) || config.BaseDepth < 0.0f || config.BaseDepth > config.MaxDepth)
+			throw std::invalid_argument("SnowField BaseDepth must be in [0, MaxDepth]");
+		if (!std::isfinite(config.MinWalkableSpeedFactor) || config.MinWalkableSpeedFactor < 0.05f ||
+			config.MinWalkableSpeedFactor > 1.0f)
+			throw std::invalid_argument("SnowField MinWalkableSpeedFactor must be in [0.05, 1.0]");
+		if (!std::isfinite(config.TrackHealRate) || config.TrackHealRate < 0.0f || config.TrackHealRate > 100.0f)
+			throw std::invalid_argument("SnowField TrackHealRate must be in [0, 100]");
+		if (!std::isfinite(config.WindDriftStrength) || config.WindDriftStrength < 0.0f ||
+			config.WindDriftStrength > 100.0f)
+			throw std::invalid_argument("SnowField WindDriftStrength must be in [0, 100]");
+	}
 
 	SnowField::SnowField()
 	{

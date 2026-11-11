@@ -329,8 +329,48 @@ int main(int argumentCount, char** arguments)
 			 {Json{{"Exposure", 0}}, Json{{"Exposure", "one"}}, Json{{"Shadows", 1}}, Json{{"FogDensity", -1}},
 			  Json{{"CameraSize", 0}}, Json{{"SunDirection", {0, 0, 0}}}, Json{{"SunDirection", {0, -1, 0}}},
 			  Json{{"SunDirection", {1e38, 1e38, 0}}}, Json{{"SunDirection", {10000, .02, 0}}},
-			  Json{{"SunRadiance", {-1, 1, 1}}}, Json{{"Unknown", 1}}})
+			  Json{{"SunRadiance", {-1, 1, 1}}}, Json{{"SnowCoverage", 1.5}}, Json{{"SnowfallIntensity", -0.1}},
+			  Json{{"WindVelocity", {200, 0, 0}}}, Json{{"SnowSparkle", 3}}, Json{{"SnowSubsurface", -1}},
+			  Json{{"Unknown", 1}}})
 			Rejects([&] { RenderSettings::Deserialize(settings); }, "invalid renderer property rejected");
+		Scene winterScene;
+		winterScene.ApplyCommands(Json::array({{{"Operation", "SetRendererSettings"},
+												{"Settings",
+												 {{"SnowCoverage", 0.85},
+												  {"SnowfallIntensity", 0.6},
+												  {"WindVelocity", {5.5, -1.0, 2.0}},
+												  {"SnowSparkle", 1.25},
+												  {"SnowSubsurface", 0.9}}}},
+											   {{"Operation", "SetSnowSettings"},
+												{"Settings",
+												 {{"Enabled", true},
+												  {"Resolution", 256},
+												  {"WorldExtent", 256.0},
+												  {"BaseDepth", 0.55},
+												  {"TracksAsset", "Tracks/Run.bwsn"}}}}}));
+		Check(winterScene.GetRenderSettings().SnowCoverage == 0.85f &&
+				  winterScene.GetRenderSettings().SnowfallIntensity == 0.6f &&
+				  winterScene.GetRenderSettings().WindVelocity.x == 5.5f && winterScene.GetSnowSettings().Enabled &&
+				  winterScene.GetSnowSettings().Resolution == 256 &&
+				  winterScene.GetSnowSettings().TracksAsset == "Tracks/Run.bwsn",
+			  "winter render and snowfield settings update via agent commands");
+		auto winterSnapshot = winterScene.Serialize();
+		Scene winterRestored;
+		winterRestored.Deserialize(winterSnapshot);
+		Check(winterRestored.Serialize() == winterSnapshot, "winter scene settings roundtrip");
+		Rejects(
+			[&]
+			{
+				winterScene.ApplyCommands(Json::array(
+					{{{"Operation", "SetSnowSettings"}, {"Settings", {{"Resolution", 512}}}},
+					 {{"Operation", "SetSnowSettings"}, {"Settings", {{"TracksAsset", "../Escape.bwsn"}}}}}));
+			},
+			"invalid snow tracks path rejects batch");
+		Check(winterScene.Serialize() == winterSnapshot, "invalid snow settings batch rolls back");
+		Rejects([&] { SceneSnowSettings::Deserialize(Json{{"Resolution", 128.5}}); },
+				"fractional snow resolution rejected");
+		Rejects([&] { SceneSnowSettings::Deserialize(Json{{"TracksAsset", "Tracks/Bad.json"}}); },
+				"non-.bwsn snow tracks extension rejected");
 		Rejects([&] { renderSettings.GetViewProjection(0); }, "camera rejects zero aspect");
 		Rejects([&] { renderSettings.GetShadowMatrices(0); }, "shadow matrices reject invalid resolution");
 		auto clip = renderSettings.GetViewProjection(1.6f) * glm::vec4(renderSettings.CameraTarget, 1);

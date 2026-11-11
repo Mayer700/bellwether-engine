@@ -49,6 +49,7 @@ namespace Bellwether
 		SnowField();
 		explicit SnowField(const SnowFieldConfig& config);
 
+		static void ValidateConfig(const SnowFieldConfig& config);
 		void Reset(const SnowFieldConfig& config);
 		void InitializeFromHeightfield(const std::vector<float>& heights, uint32_t heightGridSize,
 									   float slopeCutoff = 0.68f, float timberlineHeight = -1000.0f);

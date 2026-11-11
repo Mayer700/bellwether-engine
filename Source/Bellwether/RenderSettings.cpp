@@ -28,6 +28,16 @@ namespace Bellwether
 			throw std::invalid_argument("Camera target must be finite and within the supported world bounds");
 		if (!std::isfinite(CameraSize) || CameraSize < 4 || CameraSize > 200)
 			throw std::invalid_argument("Camera size must be between 4 and 200");
+		if (!std::isfinite(SnowCoverage) || SnowCoverage < 0.0f || SnowCoverage > 1.0f)
+			throw std::invalid_argument("Snow coverage must be between 0 and 1");
+		if (!std::isfinite(SnowfallIntensity) || SnowfallIntensity < 0.0f || SnowfallIntensity > 1.0f)
+			throw std::invalid_argument("Snowfall intensity must be between 0 and 1");
+		if (!Finite(WindVelocity) || glm::any(glm::greaterThan(glm::abs(WindVelocity), glm::vec3(100.0f))))
+			throw std::invalid_argument("Wind velocity components must be finite and within [-100, 100]");
+		if (!std::isfinite(SnowSparkle) || SnowSparkle < 0.0f || SnowSparkle > 2.0f)
+			throw std::invalid_argument("Snow sparkle must be between 0 and 2");
+		if (!std::isfinite(SnowSubsurface) || SnowSubsurface < 0.0f || SnowSubsurface > 2.0f)
+			throw std::invalid_argument("Snow subsurface scattering must be between 0 and 2");
 	}
 
 	Json RenderSettings::Serialize() const
@@ -40,22 +50,32 @@ namespace Bellwether
 				{"SunDirection", vector(SunDirection)},
 				{"SunRadiance", vector(SunRadiance)},
 				{"CameraTarget", vector(CameraTarget)},
-				{"CameraSize", CameraSize}};
+				{"CameraSize", CameraSize},
+				{"SnowCoverage", SnowCoverage},
+				{"SnowfallIntensity", SnowfallIntensity},
+				{"WindVelocity", vector(WindVelocity)},
+				{"SnowSparkle", SnowSparkle},
+				{"SnowSubsurface", SnowSubsurface}};
 	}
 
 	RenderSettings RenderSettings::Deserialize(const Json& value)
 	{
 		if (!value.is_object())
 			throw std::invalid_argument("Render settings must be an object");
-		const std::array<std::string, 7> fields{"Exposure",	   "Shadows",	   "FogDensity", "SunDirection",
-												"SunRadiance", "CameraTarget", "CameraSize"};
+		const std::array<std::string, 12> fields{"Exposure",		  "Shadows",	  "FogDensity",	 "SunDirection",
+												 "SunRadiance",		  "CameraTarget", "CameraSize",	 "SnowCoverage",
+												 "SnowfallIntensity", "WindVelocity", "SnowSparkle", "SnowSubsurface"};
 		for (const auto& [name, item] : value.items())
 			if (std::find(fields.begin(), fields.end(), name) == fields.end())
 				throw std::invalid_argument("Unsupported renderer setting: " + name);
 		RenderSettings settings;
 		for (auto [name, destination] : {std::pair{"Exposure", &settings.Exposure},
 										 {"FogDensity", &settings.FogDensity},
-										 {"CameraSize", &settings.CameraSize}})
+										 {"CameraSize", &settings.CameraSize},
+										 {"SnowCoverage", &settings.SnowCoverage},
+										 {"SnowfallIntensity", &settings.SnowfallIntensity},
+										 {"SnowSparkle", &settings.SnowSparkle},
+										 {"SnowSubsurface", &settings.SnowSubsurface}})
 		{
 			if (!value.contains(name))
 				continue;
@@ -64,13 +84,19 @@ namespace Bellwether
 			*destination = value[name].get<float>();
 		}
 		if (value.contains("Shadows"))
-			settings.Shadows = value.at("Shadows").get<bool>();
+		{
+			if (!value["Shadows"].is_boolean())
+				throw std::invalid_argument("Shadows must be boolean");
+			settings.Shadows = value["Shadows"].get<bool>();
+		}
 		if (value.contains("SunDirection"))
 			settings.SunDirection = ReadVector(value["SunDirection"]);
 		if (value.contains("SunRadiance"))
 			settings.SunRadiance = ReadVector(value["SunRadiance"]);
 		if (value.contains("CameraTarget"))
 			settings.CameraTarget = ReadVector(value["CameraTarget"]);
+		if (value.contains("WindVelocity"))
+			settings.WindVelocity = ReadVector(value["WindVelocity"]);
 		settings.Validate();
 		return settings;
 	}

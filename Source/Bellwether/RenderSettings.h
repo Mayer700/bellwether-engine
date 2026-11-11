@@ -16,6 +16,11 @@ namespace Bellwether
 		glm::vec3 SunRadiance{4.0f, 3.3f, 2.5f};
 		glm::vec3 CameraTarget{0, 1, 10};
 		float CameraSize = 24.0f;
+		float SnowCoverage = 0.0f;
+		float SnowfallIntensity = 0.0f;
+		glm::vec3 WindVelocity{0.0f};
+		float SnowSparkle = 0.0f;
+		float SnowSubsurface = 0.0f;
 
 		void Validate() const;
 		Json Serialize() const;

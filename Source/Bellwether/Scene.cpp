@@ -42,12 +42,13 @@ namespace Bellwether
 		return static_cast<EntityID>(id);
 	}
 
-	void ValidateModelAssetPath(const std::string& asset)
+	static void ValidateRelativeAssetPath(const std::string& asset, std::initializer_list<const char*> extensions,
+										  const char* label)
 	{
 		if (asset.empty())
 			return;
 		if (asset.size() > 1024 || asset.front() == '/')
-			throw std::invalid_argument("Model asset must be a relative path of at most 1024 UTF-8 bytes");
+			throw std::invalid_argument(std::string(label) + " must be a relative path of at most 1024 UTF-8 bytes");
 		for (size_t index = 0; index < asset.size();)
 		{
 			auto first = static_cast<unsigned char>(asset[index++]);
@@ -55,7 +56,7 @@ namespace Bellwether
 			{
 				if (first < 0x20 || first == 0x7f ||
 					std::string("\\:\"<>|?*").find(static_cast<char>(first)) != std::string::npos)
-					throw std::invalid_argument("Model asset contains a non-portable path character");
+					throw std::invalid_argument(std::string(label) + " contains a non-portable path character");
 				continue;
 			}
 			uint32_t codepoint = 0;
@@ -80,18 +81,18 @@ namespace Bellwether
 				minimum = 0x10000;
 			}
 			else
-				throw std::invalid_argument("Model asset must contain valid UTF-8");
+				throw std::invalid_argument(std::string(label) + " must contain valid UTF-8");
 			if (continuation > asset.size() - index)
-				throw std::invalid_argument("Model asset contains truncated UTF-8");
+				throw std::invalid_argument(std::string(label) + " contains truncated UTF-8");
 			while (continuation--)
 			{
 				auto next = static_cast<unsigned char>(asset[index++]);
 				if ((next & 0xc0) != 0x80)
-					throw std::invalid_argument("Model asset must contain valid UTF-8");
+					throw std::invalid_argument(std::string(label) + " must contain valid UTF-8");
 				codepoint = (codepoint << 6) | (next & 0x3f);
 			}
 			if (codepoint < minimum || codepoint > 0x10ffff || (codepoint >= 0xd800 && codepoint <= 0xdfff))
-				throw std::invalid_argument("Model asset must contain valid UTF-8");
+				throw std::invalid_argument(std::string(label) + " must contain valid UTF-8");
 		}
 		for (size_t begin = 0; begin < asset.size();)
 		{
@@ -101,7 +102,7 @@ namespace Bellwether
 			auto segment = asset.substr(begin, end - begin);
 			if (segment.empty() || segment.size() > 255 || segment == "." || segment == ".." || segment.back() == '.' ||
 				segment.back() == ' ')
-				throw std::invalid_argument("Model asset contains an invalid path segment");
+				throw std::invalid_argument(std::string(label) + " contains an invalid path segment");
 			auto stem = segment.substr(0, segment.find('.'));
 			for (auto& character : stem)
 				if (character >= 'a' && character <= 'z')
@@ -113,20 +114,106 @@ namespace Bellwether
 				 static_cast<unsigned char>(stem[3]) == 0xc2 &&
 				 (static_cast<unsigned char>(stem[4]) == 0xb9 || static_cast<unsigned char>(stem[4]) == 0xb2 ||
 				  static_cast<unsigned char>(stem[4]) == 0xb3)))
-				throw std::invalid_argument("Model asset contains a reserved device name");
+				throw std::invalid_argument(std::string(label) + " contains a reserved device name");
 			if (end == asset.size())
 				break;
 			begin = end + 1;
 			if (begin == asset.size())
-				throw std::invalid_argument("Model asset cannot end with a path separator");
+				throw std::invalid_argument(std::string(label) + " cannot end with a path separator");
 		}
 		auto extension =
 			asset.substr(asset.find_last_of('.') == std::string::npos ? asset.size() : asset.find_last_of('.'));
 		for (auto& character : extension)
 			if (character >= 'A' && character <= 'Z')
 				character += 'a' - 'A';
-		if (extension != ".gltf" && extension != ".glb")
-			throw std::invalid_argument("Model asset must reference a .gltf or .glb file");
+		if (std::none_of(extensions.begin(), extensions.end(),
+						 [&](const char* allowed) { return extension == allowed; }))
+			throw std::invalid_argument(std::string(label) + " has an unsupported file extension");
+	}
+
+	void ValidateModelAssetPath(const std::string& asset)
+	{
+		ValidateRelativeAssetPath(asset, {".gltf", ".glb"}, "Model asset");
+	}
+
+	void ValidateSnowTracksAssetPath(const std::string& asset)
+	{
+		ValidateRelativeAssetPath(asset, {".bwsn"}, "Snow tracks asset");
+	}
+
+	SnowFieldConfig SceneSnowSettings::ToFieldConfig() const
+	{
+		SnowFieldConfig config;
+		config.Resolution = Resolution;
+		config.WorldExtent = WorldExtent;
+		config.BaseDepth = BaseDepth;
+		config.MaxDepth = MaxDepth;
+		config.TrackHealRate = TrackHealRate;
+		config.WindDriftStrength = WindDriftStrength;
+		return config;
+	}
+
+	void SceneSnowSettings::Validate() const
+	{
+		SnowField::ValidateConfig(ToFieldConfig());
+		ValidateSnowTracksAssetPath(TracksAsset);
+	}
+
+	Json SceneSnowSettings::Serialize() const
+	{
+		Validate();
+		Json result = {{"Enabled", Enabled},
+					   {"Resolution", Resolution},
+					   {"WorldExtent", WorldExtent},
+					   {"BaseDepth", BaseDepth},
+					   {"MaxDepth", MaxDepth},
+					   {"TrackHealRate", TrackHealRate},
+					   {"WindDriftStrength", WindDriftStrength}};
+		if (!TracksAsset.empty())
+			result["TracksAsset"] = TracksAsset;
+		return result;
+	}
+
+	SceneSnowSettings SceneSnowSettings::Deserialize(const Json& value)
+	{
+		ValidateFields(value, {"Enabled", "Resolution", "WorldExtent", "BaseDepth", "MaxDepth", "TrackHealRate",
+							   "WindDriftStrength", "TracksAsset"});
+		SceneSnowSettings settings;
+		if (value.contains("Enabled"))
+		{
+			if (!value["Enabled"].is_boolean())
+				throw std::invalid_argument("Snow Enabled must be boolean");
+			settings.Enabled = value["Enabled"].get<bool>();
+		}
+		if (value.contains("Resolution"))
+		{
+			if (!value["Resolution"].is_number_integer() || value["Resolution"].is_number_float())
+				throw std::invalid_argument("Snow Resolution must be an integer");
+			int64_t parsed = value["Resolution"].get<int64_t>();
+			if (parsed < 4 || parsed > 1024)
+				throw std::invalid_argument("Snow Resolution must be between 4 and 1024");
+			settings.Resolution = static_cast<uint32_t>(parsed);
+		}
+		for (auto [name, destination] : {std::pair{"WorldExtent", &settings.WorldExtent},
+										 {"BaseDepth", &settings.BaseDepth},
+										 {"MaxDepth", &settings.MaxDepth},
+										 {"TrackHealRate", &settings.TrackHealRate},
+										 {"WindDriftStrength", &settings.WindDriftStrength}})
+		{
+			if (!value.contains(name))
+				continue;
+			if (!value[name].is_number())
+				throw std::invalid_argument(std::string("Snow ") + name + " must be numeric");
+			*destination = value[name].get<float>();
+		}
+		if (value.contains("TracksAsset"))
+		{
+			if (!value["TracksAsset"].is_string())
+				throw std::invalid_argument("Snow TracksAsset must be a string");
+			settings.TracksAsset = value["TracksAsset"].get<std::string>();
+		}
+		settings.Validate();
+		return settings;
 	}
 
 	glm::vec3 ReadVector(const Json& value)
@@ -205,6 +292,8 @@ namespace Bellwether
 					   {"NextID", m_NextID},
 					   {"Entities", Json::array()},
 					   {"Renderer", m_RenderSettings.Serialize()}};
+		if (m_SnowSettings != SceneSnowSettings{})
+			result["Snow"] = m_SnowSettings.Serialize();
 		for (const auto& [id, entity] : m_Entities)
 		{
 			ValidateModelAssetPath(entity.ModelAsset);
@@ -259,12 +348,14 @@ namespace Bellwether
 
 	void Scene::Deserialize(const Json& data)
 	{
-		ValidateFields(data, {"Format", "NextID", "Entities", "Renderer"});
+		ValidateFields(data, {"Format", "NextID", "Entities", "Renderer", "Snow"});
 		if (data.at("Format") != 1 || !data.at("Entities").is_array())
 			throw std::invalid_argument("Unsupported scene format");
 		Scene candidate;
 		if (data.contains("Renderer"))
 			candidate.SetRenderSettings(RenderSettings::Deserialize(data["Renderer"]));
+		if (data.contains("Snow"))
+			candidate.SetSnowSettings(SceneSnowSettings::Deserialize(data["Snow"]));
 		if (data.at("Entities").size() > 100000)
 			throw std::invalid_argument("Scene entity budget exceeded (100000)");
 		for (const auto& entry : data.at("Entities"))
@@ -324,6 +415,16 @@ namespace Bellwether
 				for (const auto& [name, value] : command.at("Settings").items())
 					settings[name] = value;
 				candidate.SetRenderSettings(RenderSettings::Deserialize(settings));
+			}
+			else if (operation == "SetSnowSettings")
+			{
+				ValidateFields(command, {"Operation", "Settings"});
+				if (!command.at("Settings").is_object())
+					throw std::invalid_argument("Snow settings command must contain an object");
+				auto settings = candidate.GetSnowSettings().Serialize();
+				for (const auto& [name, value] : command.at("Settings").items())
+					settings[name] = value;
+				candidate.SetSnowSettings(SceneSnowSettings::Deserialize(settings));
 			}
 			else if (operation == "Create")
 			{
@@ -406,6 +507,17 @@ namespace Bellwether
 	{
 		settings.Validate();
 		m_RenderSettings = settings;
+	}
+
+	const SceneSnowSettings& Scene::GetSnowSettings() const
+	{
+		return m_SnowSettings;
+	}
+
+	void Scene::SetSnowSettings(const SceneSnowSettings& settings)
+	{
+		settings.Validate();
+		m_SnowSettings = settings;
 	}
 
 } // namespace Bellwether
