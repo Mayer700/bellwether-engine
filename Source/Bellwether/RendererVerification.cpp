@@ -650,6 +650,35 @@ namespace Bellwether
 		check(peakHDR(sparkle) > peakHDR(tracked), "snow sparkle boosts HDR specular crystal peak");
 		writePpm(outputDirectory / "SnowSparkle.ppm", sparkle, width, height);
 
+		// Verify depth-tested HDR wind-driven snowfall particle pass
+		snowSettings.SnowfallIntensity = 1.0f;
+		snowSettings.WindVelocity = glm::vec3(4.5f, 0.0f, -1.8f);
+		world.SetTimeSeconds(0.0f);
+		world.SetSettings(snowSettings);
+		auto fallT0 = RenderCapture(device, world, width, height);
+		check(linearFinite(fallT0), "snowfall particle pass at t=0 HDR capture finite");
+		check(fallT0.Pixels != sparkle.Pixels, "snowfall particle pass visibly draws snowflakes");
+		writePpm(outputDirectory / "SnowfallT0.ppm", fallT0, width, height);
+
+		world.SetTimeSeconds(1.25f);
+		auto fallT1 = RenderCapture(device, world, width, height);
+		check(linearFinite(fallT1), "snowfall particle pass at t=1.25 HDR capture finite");
+		check(fallT1.Pixels != fallT0.Pixels, "time progression advects falling snow particles");
+		writePpm(outputDirectory / "SnowfallT1.ppm", fallT1, width, height);
+
+		snowSettings.WindVelocity = glm::vec3(-7.5f, 0.0f, 3.0f);
+		world.SetSettings(snowSettings);
+		auto fallWind = RenderCapture(device, world, width, height);
+		check(linearFinite(fallWind), "reversed wind snowfall HDR capture finite");
+		check(fallWind.Pixels != fallT1.Pixels, "wind vector alters snowfall trajectory and streak angle");
+
+		snowSettings.SnowfallIntensity = 0.0f;
+		snowSettings.WindVelocity = glm::vec3(0.0f);
+		world.SetTimeSeconds(0.0f);
+		world.SetSettings(snowSettings);
+		auto fallOff = RenderCapture(device, world, width, height);
+		check(fallOff.Pixels == sparkle.Pixels, "zero SnowfallIntensity disables particle pass cleanly");
+
 		// Verify external depth.u8 / ice.u8 track bridge load
 		const std::filesystem::path bridgeDir = outputDirectory / "BridgeWorld";
 		std::filesystem::remove_all(bridgeDir);

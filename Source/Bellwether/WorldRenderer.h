@@ -99,9 +99,10 @@ namespace Bellwether
 		nvrhi::BufferHandle m_Camera;
 		std::map<std::pair<nvrhi::Format, nvrhi::Format>, nvrhi::GraphicsPipelineHandle> m_Pipelines;
 		nvrhi::ShaderHandle m_ShadowShader, m_ShadowFragmentShader, m_FullscreenShader, m_TonemapShader;
-		nvrhi::BindingLayoutHandle m_ShadowLayout, m_PostLayout;
-		nvrhi::BindingSetHandle m_ShadowBindings, m_PostBindings;
-		nvrhi::GraphicsPipelineHandle m_ShadowPipeline, m_LightingPipeline;
+		nvrhi::ShaderHandle m_SnowParticleVertexShader, m_SnowParticleFragmentShader;
+		nvrhi::BindingLayoutHandle m_ShadowLayout, m_PostLayout, m_SnowParticleLayout;
+		nvrhi::BindingSetHandle m_ShadowBindings, m_PostBindings, m_SnowParticleBindings;
+		nvrhi::GraphicsPipelineHandle m_ShadowPipeline, m_LightingPipeline, m_SnowParticlePipeline;
 		nvrhi::SamplerHandle m_ShadowSampler, m_LinearSampler;
 		std::array<nvrhi::TextureHandle, 2> m_ShadowMaps;
 		std::array<nvrhi::FramebufferHandle, 2> m_ShadowFramebuffers;

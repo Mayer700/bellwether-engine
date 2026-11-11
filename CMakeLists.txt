@@ -140,7 +140,7 @@ if(BELLWETHER_BUILD_GRAPHICS)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   FetchContent_MakeAvailable(GLSLANG)
   set(shaderOutputs)
-  foreach(shader World.vert World.frag Shadow.vert Shadow.frag Fullscreen.vert Tonemap.frag)
+  foreach(shader World.vert World.frag Shadow.vert Shadow.frag Fullscreen.vert Tonemap.frag SnowParticle.vert SnowParticle.frag)
     set(output "${CMAKE_CURRENT_BINARY_DIR}/Shaders/${shader}.spv")
     add_custom_command(OUTPUT "${output}" COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/Shaders"
       COMMAND $<TARGET_FILE:glslang-standalone> -V --target-env vulkan1.3 "${CMAKE_CURRENT_SOURCE_DIR}/Shaders/${shader}" -o "${output}"

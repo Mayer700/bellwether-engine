@@ -56,6 +56,8 @@ namespace Bellwether
 		m_ShadowFragmentShader = shader("Shadow.frag.spv", nvrhi::ShaderType::Pixel);
 		m_FullscreenShader = shader("Fullscreen.vert.spv", nvrhi::ShaderType::Vertex);
 		m_TonemapShader = shader("Tonemap.frag.spv", nvrhi::ShaderType::Pixel);
+		m_SnowParticleVertexShader = shader("SnowParticle.vert.spv", nvrhi::ShaderType::Vertex);
+		m_SnowParticleFragmentShader = shader("SnowParticle.frag.spv", nvrhi::ShaderType::Pixel);
 		nvrhi::VertexAttributeDesc attributes[] = {nvrhi::VertexAttributeDesc()
 													   .setName("POSITION")
 													   .setFormat(nvrhi::Format::RGB32_FLOAT)
@@ -110,6 +112,12 @@ namespace Bellwether
 													   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
 													   .addItem(nvrhi::BindingLayoutItem::Sampler(0))
 													   .addItem(nvrhi::BindingLayoutItem::PushConstants(0, 16)));
+		m_SnowParticleLayout =
+			device->createBindingLayout(nvrhi::BindingLayoutDesc()
+											.setRegisterSpaceAndDescriptorSet(0)
+											.setVisibility(nvrhi::ShaderType::All)
+											.addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
+											.addItem(nvrhi::BindingLayoutItem::PushConstants(1, 32)));
 		m_Camera = device->createBuffer(nvrhi::BufferDesc()
 											.setByteSize(sizeof(FrameData))
 											.setIsConstantBuffer(true)
@@ -122,8 +130,8 @@ namespace Bellwether
 													.setBorderColor(nvrhi::Color(1)));
 		m_LinearSampler = device->createSampler(
 			nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
-		if (!m_InputLayout || !m_Layout || !m_MaterialLayout || !m_ShadowLayout || !m_PostLayout || !m_Camera ||
-			!m_ShadowSampler || !m_LinearSampler)
+		if (!m_InputLayout || !m_Layout || !m_MaterialLayout || !m_ShadowLayout || !m_PostLayout ||
+			!m_SnowParticleLayout || !m_Camera || !m_ShadowSampler || !m_LinearSampler)
 			throw std::runtime_error("Cannot create renderer layouts, frame data or samplers");
 		for (size_t index = 0; index < 2; index++)
 		{
@@ -166,6 +174,11 @@ namespace Bellwether
 														.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
 														.addItem(nvrhi::BindingSetItem::PushConstants(1, 112)),
 													m_ShadowLayout);
+		m_SnowParticleBindings =
+			device->createBindingSet(nvrhi::BindingSetDesc()
+										 .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
+										 .addItem(nvrhi::BindingSetItem::PushConstants(1, 32)),
+									 m_SnowParticleLayout);
 		auto shadowPipeline = nvrhi::GraphicsPipelineDesc()
 								  .setVertexShader(m_ShadowShader)
 								  .setPixelShader(m_ShadowFragmentShader)
@@ -180,8 +193,9 @@ namespace Bellwether
 			nvrhi::ComparisonFunc::Less);
 		m_ShadowPipeline =
 			device->createGraphicsPipeline(shadowPipeline, m_ShadowFramebuffers[0]->getFramebufferInfo());
-		if (!m_VertexShader || !m_FragmentShader || !m_Layout || !m_Camera || !m_Bindings || !m_InputLayout ||
-			!m_ShadowBindings || !m_ShadowPipeline || !m_LinearSampler || !m_ShadowSampler)
+		if (!m_VertexShader || !m_FragmentShader || !m_SnowParticleVertexShader || !m_SnowParticleFragmentShader ||
+			!m_Layout || !m_Camera || !m_Bindings || !m_InputLayout || !m_ShadowBindings || !m_SnowParticleBindings ||
+			!m_ShadowPipeline || !m_LinearSampler || !m_ShadowSampler)
 			throw std::runtime_error("World renderer resource initialization failed");
 	}
 
@@ -603,11 +617,32 @@ namespace Bellwether
 			if (!lightingPipeline)
 				throw std::runtime_error("Cannot create HDR lighting pipeline");
 		}
+		auto snowParticlePipeline = m_SnowParticlePipeline;
+		if (!snowParticlePipeline)
+		{
+			auto descriptor = nvrhi::GraphicsPipelineDesc()
+								  .setVertexShader(m_SnowParticleVertexShader)
+								  .setPixelShader(m_SnowParticleFragmentShader)
+								  .addBindingLayout(m_SnowParticleLayout);
+			descriptor.renderState.rasterState.setCullMode(nvrhi::RasterCullMode::None);
+			descriptor.renderState.depthStencilState.setDepthTestEnable(true).setDepthWriteEnable(false).setDepthFunc(
+				nvrhi::ComparisonFunc::Less);
+			descriptor.renderState.blendState.targets[0]
+				.setBlendEnable(true)
+				.setSrcBlend(nvrhi::BlendFactor::SrcAlpha)
+				.setDestBlend(nvrhi::BlendFactor::InvSrcAlpha)
+				.setSrcBlendAlpha(nvrhi::BlendFactor::One)
+				.setDestBlendAlpha(nvrhi::BlendFactor::InvSrcAlpha);
+			snowParticlePipeline = m_Device->createGraphicsPipeline(descriptor, framebuffer->getFramebufferInfo());
+			if (!snowParticlePipeline)
+				throw std::runtime_error("Cannot create snow particle pipeline");
+		}
 		m_HDR = color;
 		m_HDRDepth = depth;
 		m_HDRFramebuffer = framebuffer;
 		m_PostBindings = bindings;
 		m_LightingPipeline = lightingPipeline;
+		m_SnowParticlePipeline = snowParticlePipeline;
 		m_Width = width;
 		m_Height = height;
 	}
@@ -666,6 +701,27 @@ namespace Bellwether
 		commands->clearDepthStencilTexture(m_HDRDepth, nvrhi::AllSubresources, true, 1, false, 0);
 		DrawGeometry(commands, m_HDRFramebuffer, m_LightingPipeline, m_Bindings, width, height,
 					 std::max(80.f, m_Settings.CameraSize * 2));
+		if (m_Settings.SnowfallIntensity > 0.001f && m_SnowParticlePipeline)
+		{
+			const uint32_t particleCount = std::clamp(
+				static_cast<uint32_t>(std::round(std::clamp(m_Settings.SnowfallIntensity, 0.0f, 2.0f) * 2048.0f)), 128u,
+				4096u);
+			nvrhi::GraphicsState particleState;
+			particleState.setPipeline(m_SnowParticlePipeline)
+				.setFramebuffer(m_HDRFramebuffer)
+				.addBindingSet(m_SnowParticleBindings)
+				.setViewport(
+					nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(float(width), float(height))));
+			commands->setGraphicsState(particleState);
+			struct ParticlePush
+			{
+				glm::vec4 VolumeCenter;
+				glm::vec4 Params;
+			} push{glm::vec4(m_Settings.CameraTarget, 42.0f),
+				   glm::vec4(float(width) / float(height), m_Settings.SnowfallIntensity, 18.0f, float(particleCount))};
+			commands->setPushConstants(&push, sizeof(push));
+			commands->draw(nvrhi::DrawArguments().setVertexCount(6).setInstanceCount(particleCount));
+		}
 		nvrhi::GraphicsState state;
 		state.setPipeline(m_Pipelines.at(format))
 			.setFramebuffer(framebuffer)
