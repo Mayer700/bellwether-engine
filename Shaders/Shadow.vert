@@ -14,6 +14,7 @@ layout(push_constant,std430) uniform ObjectData
     mat4 Transform;
     vec4 AlbedoRoughness;
     vec4 EmissionMetallic;
+    vec4 SurfaceFlags;
 } u_Object;
 void main()
 {

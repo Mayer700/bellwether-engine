@@ -562,6 +562,27 @@ namespace Bellwether
 		m_Implementation->World->SetSettings(settings);
 	}
 
+	void VulkanContext::UpdateSnowField(const SnowField& snow)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load a world before updating the snowfield");
+		m_Implementation->World->UpdateSnowField(snow);
+	}
+
+	void VulkanContext::ClearSnowField()
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load a world before clearing the snowfield");
+		m_Implementation->World->ClearSnowField();
+	}
+
+	void VulkanContext::SetTimeSeconds(float seconds)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load a world before updating time");
+		m_Implementation->World->SetTimeSeconds(seconds);
+	}
+
 	void VulkanContext::VerifyRenderer(const std::filesystem::path& outputDirectory,
 									   const std::filesystem::path& fixtureDirectory)
 	{
@@ -569,6 +590,15 @@ namespace Bellwether
 			throw std::logic_error("Load the renderer fixture before verification");
 		Bellwether::VerifyRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
 								   fixtureDirectory);
+	}
+
+	void VulkanContext::VerifySnowRenderer(const std::filesystem::path& outputDirectory,
+										   const std::filesystem::path& fixtureDirectory)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load the renderer fixture before snow verification");
+		Bellwether::VerifySnowRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
+									   fixtureDirectory);
 	}
 
 	void VulkanContext::VerifyModelRenderer(const std::filesystem::path& outputDirectory,

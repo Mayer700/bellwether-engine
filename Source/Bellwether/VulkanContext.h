@@ -27,10 +27,15 @@ namespace Bellwether
 		unsigned GetValidationErrors() const;
 		void Shutdown();
 		void SetRenderSettings(const RenderSettings& settings);
+		void UpdateSnowField(const class SnowField& snow);
+		void ClearSnowField();
+		void SetTimeSeconds(float seconds);
 		void VerifyRenderer(const std::filesystem::path& outputDirectory,
 							const std::filesystem::path& fixtureDirectory);
 		void VerifyModelRenderer(const std::filesystem::path& outputDirectory,
 								 const std::filesystem::path& fixtureDirectory);
+		void VerifySnowRenderer(const std::filesystem::path& outputDirectory,
+								const std::filesystem::path& fixtureDirectory);
 
 	  private:
 		class Implementation;

@@ -14,6 +14,9 @@ namespace Bellwether
 		void Load(const std::filesystem::path& directory);
 		void LoadModel(const std::filesystem::path& path);
 		void LoadScene(const Scene& scene, const std::filesystem::path& assetRoot);
+		void UpdateSnowField(const SnowField& snow);
+		void ClearSnowField();
+		void SetTimeSeconds(float timeSeconds);
 		void Render(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer, uint32_t width, uint32_t height);
 		void SetSettings(const RenderSettings& settings);
 		const RenderSettings& GetSettings() const;
@@ -52,6 +55,7 @@ namespace Bellwether
 			glm::mat4 Transform{1};
 			glm::vec4 AlbedoRoughness{1};
 			glm::vec4 EmissionMetallic{0};
+			glm::vec4 SurfaceFlags{0};
 		};
 		struct Material
 		{
@@ -71,6 +75,7 @@ namespace Bellwether
 		Mesh UploadMesh(nvrhi::ICommandList* commands, const std::vector<ModelVertex>& vertices,
 						const std::vector<uint32_t>& indices);
 		void ResizeTargets(uint32_t width, uint32_t height);
+		void RebuildFrameBindings();
 		void DrawGeometry(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer,
 						  nvrhi::IGraphicsPipeline* pipeline, nvrhi::IBindingSet* bindings, uint32_t width,
 						  uint32_t height, float range);
@@ -82,6 +87,8 @@ namespace Bellwether
 			glm::vec4 SunDirection;
 			glm::vec4 SunRadianceFog;
 			glm::vec4 RenderParameters;
+			glm::vec4 SnowParameters;
+			glm::vec4 WindParameters;
 		};
 		nvrhi::IDevice* m_Device;
 		nvrhi::ShaderHandle m_VertexShader, m_FragmentShader;
@@ -99,8 +106,13 @@ namespace Bellwether
 		std::array<nvrhi::TextureHandle, 2> m_ShadowMaps;
 		std::array<nvrhi::FramebufferHandle, 2> m_ShadowFramebuffers;
 		nvrhi::TextureHandle m_HDR, m_HDRDepth;
+		nvrhi::TextureHandle m_SnowMap;
 		nvrhi::FramebufferHandle m_HDRFramebuffer;
 		uint32_t m_Width = 0, m_Height = 0;
+		bool m_HasSnowMap = false;
+		float m_SnowWorldExtent = 0.0f;
+		float m_SnowMaxDepth = 1.0f;
+		float m_TimeSeconds = 0.0f;
 		static constexpr uint32_t s_ShadowResolution = 2048;
 		RenderSettings m_Settings;
 		std::vector<Mesh> m_Meshes;

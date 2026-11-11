@@ -501,6 +501,219 @@ namespace Bellwether
 		if (failed)
 			throw std::runtime_error("Renderer verification failed " + std::to_string(failed) + " checks");
 		std::cout << "BELLWETHER_RENDERER " << report["Checks"].size() << " passed 0 failed\n";
+		report["Snow"] = VerifySnowRenderer(device, world, outputDirectory, fixtureDirectory);
+		return report;
+	}
+
+	Json VerifySnowRenderer(nvrhi::IDevice* device, WorldRenderer& world, const std::filesystem::path& outputDirectory,
+							const std::filesystem::path& fixtureDirectory)
+	{
+		std::filesystem::create_directories(outputDirectory);
+		world.Load(fixtureDirectory);
+		world.ClearSnowField();
+
+		Json report;
+		report["Checks"] = Json::array();
+		size_t failed = 0;
+		auto check = [&](bool condition, const std::string& name)
+		{
+			report["Checks"].push_back({{"Name", name}, {"Passed", condition}});
+			if (!condition)
+				failed++;
+		};
+
+		auto writePpm = [](const std::filesystem::path& path, const Capture& capture, uint32_t width, uint32_t height)
+		{
+			std::ofstream stream(path, std::ios::binary);
+			if (!stream)
+				throw std::runtime_error("Cannot open capture output: " + path.string());
+			stream << "P6\n" << width << ' ' << height << "\n255\n";
+			for (size_t i = 0; i < size_t(width) * height; i++)
+			{
+				const char rgb[3] = {static_cast<char>(capture.Pixels[i * 4 + 0]),
+									 static_cast<char>(capture.Pixels[i * 4 + 1]),
+									 static_cast<char>(capture.Pixels[i * 4 + 2])};
+				stream.write(rgb, 3);
+			}
+		};
+
+		auto linearFinite = [](const Capture& capture) -> bool
+		{
+			for (float value : capture.Linear)
+				if (!std::isfinite(value) || value < 0.0f)
+					return false;
+			return !capture.Linear.empty();
+		};
+
+		auto averageLuma = [](const Capture& capture) -> double
+		{
+			double total = 0.0;
+			const size_t count = capture.Linear.size() / 4;
+			for (size_t i = 0; i < count; i++)
+			{
+				const double r = capture.Linear[i * 4 + 0];
+				const double g = capture.Linear[i * 4 + 1];
+				const double b = capture.Linear[i * 4 + 2];
+				total += 0.2126 * r + 0.7152 * g + 0.0722 * b;
+			}
+			return count ? total / double(count) : 0.0;
+		};
+
+		auto averageBlue = [](const Capture& capture) -> double
+		{
+			double total = 0.0;
+			const size_t count = capture.Linear.size() / 4;
+			for (size_t i = 0; i < count; i++)
+				total += capture.Linear[i * 4 + 2];
+			return count ? total / double(count) : 0.0;
+		};
+
+		auto peakHDR = [](const Capture& capture) -> float
+		{
+			float peak = 0.0f;
+			const size_t count = capture.Linear.size() / 4;
+			for (size_t i = 0; i < count; i++)
+			{
+				peak = std::max(peak, capture.Linear[i * 4 + 0]);
+				peak = std::max(peak, capture.Linear[i * 4 + 1]);
+				peak = std::max(peak, capture.Linear[i * 4 + 2]);
+			}
+			return peak;
+		};
+
+		auto maxByteDelta = [](const Capture& a, const Capture& b) -> uint32_t
+		{
+			uint32_t best = 0;
+			const size_t count = std::min(a.Pixels.size(), b.Pixels.size());
+			for (size_t i = 0; i < count; i += 4)
+			{
+				for (size_t c = 0; c < 3; c++)
+				{
+					const int diff = std::abs(int(a.Pixels[i + c]) - int(b.Pixels[i + c]));
+					best = std::max(best, static_cast<uint32_t>(diff));
+				}
+			}
+			return best;
+		};
+
+		const uint32_t width = 320;
+		const uint32_t height = 180;
+
+		RenderSettings bareSettings;
+		bareSettings.Shadows = true;
+		bareSettings.Exposure = 1.0f;
+		world.SetSettings(bareSettings);
+		world.ClearSnowField();
+		auto bare = RenderCapture(device, world, width, height);
+		check(linearFinite(bare), "bare baseline HDR capture finite");
+		writePpm(outputDirectory / "SnowBare.ppm", bare, width, height);
+
+		SnowFieldConfig snowConfig;
+		snowConfig.Resolution = 256;
+		snowConfig.WorldExtent = 20.0f;
+		snowConfig.MaxDepth = 0.60f;
+		snowConfig.BaseDepth = 0.36f;
+		SnowField snow(snowConfig);
+
+		RenderSettings snowSettings = bareSettings;
+		snowSettings.SnowCoverage = 1.0f;
+		snowSettings.SnowSubsurface = 0.75f;
+		snowSettings.SnowSparkle = 0.0f;
+		snowSettings.SnowfallIntensity = 0.0f;
+		world.SetSettings(snowSettings);
+		world.UpdateSnowField(snow);
+		auto virgin = RenderCapture(device, world, width, height);
+		check(linearFinite(virgin), "virgin snow HDR capture finite");
+		check(virgin.Pixels != bare.Pixels, "virgin snow visibly alters terrain pixels");
+		check(averageLuma(virgin) > averageLuma(bare) * 1.15, "virgin snow increases scene luminance");
+		check(averageBlue(virgin) > averageBlue(bare) * 1.15, "virgin snow shifts winter icy blue luminance upward");
+		writePpm(outputDirectory / "SnowVirgin.ppm", virgin, width, height);
+
+		// Stamp deep sled trail & crater directly under camera target
+		snow.StampSegment(glm::vec2(-8.0f, 0.0f), glm::vec2(8.0f, 0.0f), 1.4f, 0.34f);
+		snow.StampSegment(glm::vec2(0.0f, -8.0f), glm::vec2(0.0f, 8.0f), 1.2f, 0.34f);
+		snow.StampCircle(glm::vec2(0.0f, 0.0f), 2.0f, 0.34f);
+		world.UpdateSnowField(snow);
+		auto tracked = RenderCapture(device, world, width, height);
+		check(linearFinite(tracked), "tracked snow HDR capture finite");
+		check(tracked.Pixels != virgin.Pixels, "stamped snow tracks modify rendered frame");
+		check(maxByteDelta(tracked, virgin) >= 12, "stamped snow track normal/albedo delta is pronounced");
+		check(averageLuma(tracked) < averageLuma(virgin), "carved dark track lowers mean luminance");
+		writePpm(outputDirectory / "SnowTracked.ppm", tracked, width, height);
+
+		// Enable HDR crystal sparkle
+		snowSettings.SnowSparkle = 1.6f;
+		world.SetSettings(snowSettings);
+		auto sparkle = RenderCapture(device, world, width, height);
+		check(linearFinite(sparkle), "sparkle snow HDR capture finite");
+		check(sparkle.Pixels != tracked.Pixels, "snow sparkle modifies rendered pixels");
+		check(peakHDR(sparkle) > peakHDR(tracked), "snow sparkle boosts HDR specular crystal peak");
+		writePpm(outputDirectory / "SnowSparkle.ppm", sparkle, width, height);
+
+		// Verify external depth.u8 / ice.u8 track bridge load
+		const std::filesystem::path bridgeDir = outputDirectory / "BridgeWorld";
+		std::filesystem::remove_all(bridgeDir);
+		std::filesystem::copy(fixtureDirectory, bridgeDir,
+							  std::filesystem::copy_options::recursive |
+								  std::filesystem::copy_options::overwrite_existing);
+		std::vector<uint8_t> depthBytes(256u * 256u, 255u);
+		std::vector<uint8_t> iceBytes(256u * 256u, 0u);
+		for (uint32_t y = 96; y < 160; y++)
+		{
+			for (uint32_t x = 104; x < 152; x++)
+			{
+				const size_t idx = size_t(y) * 256u + x;
+				depthBytes[idx] = 24u;
+				iceBytes[idx] = 220u;
+			}
+		}
+		{
+			std::ofstream depthStream(bridgeDir / "depth.u8", std::ios::binary);
+			depthStream.write(reinterpret_cast<const char*>(depthBytes.data()),
+							  static_cast<std::streamsize>(depthBytes.size()));
+			std::ofstream iceStream(bridgeDir / "ice.u8", std::ios::binary);
+			iceStream.write(reinterpret_cast<const char*>(iceBytes.data()),
+							static_cast<std::streamsize>(iceBytes.size()));
+		}
+		bool rejectedMissingSnowSize = false;
+		try
+		{
+			world.Load(bridgeDir);
+		}
+		catch (const std::runtime_error&)
+		{
+			rejectedMissingSnowSize = true;
+		}
+		check(rejectedMissingSnowSize, "depth.u8 without snow_size in world.json rejects cleanly");
+		auto bridgeManifest = ReadJson(bridgeDir / "world.json");
+		bridgeManifest["snow_size"] = 256;
+		AtomicWrite(bridgeDir / "world.json", bridgeManifest.dump(2));
+		world.Load(bridgeDir);
+		snowSettings.SnowSparkle = 0.0f;
+		world.SetSettings(snowSettings);
+		auto bridged = RenderCapture(device, world, width, height);
+		check(linearFinite(bridged), "bridged depth.u8/ice.u8 capture finite");
+		check(bridged.Pixels != virgin.Pixels, "bridged depth.u8/ice.u8 track renders distinct ice trail");
+		writePpm(outputDirectory / "SnowBridge.ppm", bridged, width, height);
+		std::filesystem::remove_all(bridgeDir);
+
+		// Verify clean recovery when clearing snowfield back to bare baseline
+		world.Load(fixtureDirectory);
+		world.ClearSnowField();
+		world.SetSettings(bareSettings);
+		auto recovered = RenderCapture(device, world, width, height);
+		check(recovered.Pixels == bare.Pixels, "ClearSnowField restores exact bare terrain rendering");
+
+		report["BareLuma"] = averageLuma(bare);
+		report["VirginLuma"] = averageLuma(virgin);
+		report["TrackedLuma"] = averageLuma(tracked);
+		report["TrackedPeakHDR"] = peakHDR(tracked);
+		report["SparklePeakHDR"] = peakHDR(sparkle);
+		report["Failed"] = failed;
+		AtomicWrite(outputDirectory / "Snow.json", report.dump(2));
+		if (failed)
+			throw std::runtime_error("Snow renderer verification failed " + std::to_string(failed) + " checks");
+		std::cout << "BELLWETHER_SNOW " << report["Checks"].size() << " passed 0 failed\n";
 		return report;
 	}
 } // namespace Bellwether

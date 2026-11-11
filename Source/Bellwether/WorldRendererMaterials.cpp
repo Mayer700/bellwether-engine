@@ -146,6 +146,7 @@ namespace Bellwether
 	{
 		auto asset = ImportGltf(path);
 		UploadModel(asset);
+		ClearSnowField();
 	}
 
 	void WorldRenderer::LoadScene(const Scene& scene, const std::filesystem::path& assetRoot)
@@ -233,6 +234,26 @@ namespace Bellwether
 		}
 		UploadModel(merged);
 		m_Settings = scene.GetRenderSettings();
+		const auto& snowSettings = scene.GetSnowSettings();
+		if (snowSettings.Enabled)
+		{
+			SnowField snow(snowSettings.ToFieldConfig());
+			if (!snowSettings.TracksAsset.empty())
+			{
+				ValidateSnowTracksAssetPath(snowSettings.TracksAsset);
+				auto relative = std::filesystem::path(
+					std::u8string(reinterpret_cast<const char8_t*>(snowSettings.TracksAsset.data()),
+								  snowSettings.TracksAsset.size()));
+				auto tracksPath = std::filesystem::weakly_canonical(root / relative);
+				auto prefix = std::mismatch(root.begin(), root.end(), tracksPath.begin(), tracksPath.end());
+				if (prefix.first != root.end())
+					throw std::invalid_argument("Scene snow tracks link escapes its asset root");
+				snow.LoadTracks(tracksPath);
+			}
+			UpdateSnowField(snow);
+		}
+		else
+			ClearSnowField();
 	}
 
 	void WorldRenderer::UploadModel(const ModelAsset& asset)

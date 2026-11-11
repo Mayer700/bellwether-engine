@@ -39,7 +39,7 @@ namespace Bellwether
 	{
 		if (!device)
 			throw std::invalid_argument("World renderer requires a graphics device");
-		static_assert(sizeof(FrameData) == 256);
+		static_assert(sizeof(FrameData) == 288);
 		auto directory = GetExecutableDirectory() / "Shaders";
 		auto shader = [&](const char* filename, nvrhi::ShaderType type)
 		{
@@ -93,15 +93,17 @@ namespace Bellwether
 												   .setRegisterSpaceAndDescriptorSet(0)
 												   .setVisibility(nvrhi::ShaderType::All)
 												   .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
-												   .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96))
+												   .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 112))
 												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(0))
 												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(1))
-												   .addItem(nvrhi::BindingLayoutItem::Sampler(0)));
+												   .addItem(nvrhi::BindingLayoutItem::Texture_SRV(2))
+												   .addItem(nvrhi::BindingLayoutItem::Sampler(0))
+												   .addItem(nvrhi::BindingLayoutItem::Sampler(1)));
 		m_ShadowLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
 														 .setRegisterSpaceAndDescriptorSet(0)
 														 .setVisibility(nvrhi::ShaderType::Vertex)
 														 .addItem(nvrhi::BindingLayoutItem::VolatileConstantBuffer(0))
-														 .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 96)));
+														 .addItem(nvrhi::BindingLayoutItem::PushConstants(1, 112)));
 		m_PostLayout = device->createBindingLayout(nvrhi::BindingLayoutDesc()
 													   .setRegisterSpaceAndDescriptorSet(0)
 													   .setVisibility(nvrhi::ShaderType::All)
@@ -140,16 +142,29 @@ namespace Bellwether
 			if (!m_ShadowFramebuffers[index])
 				throw std::runtime_error("Cannot create sun shadow framebuffer");
 		}
-		m_Bindings = device->createBindingSet(nvrhi::BindingSetDesc()
-												  .addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
-												  .addItem(nvrhi::BindingSetItem::PushConstants(1, 96))
-												  .addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_ShadowMaps[0]))
-												  .addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_ShadowMaps[1]))
-												  .addItem(nvrhi::BindingSetItem::Sampler(0, m_ShadowSampler)),
-											  m_Layout);
+		m_SnowMap = device->createTexture(nvrhi::TextureDesc()
+											  .setWidth(1)
+											  .setHeight(1)
+											  .setFormat(nvrhi::Format::RGBA8_UNORM)
+											  .setInitialState(nvrhi::ResourceStates::ShaderResource)
+											  .setKeepInitialState(true)
+											  .setDebugName("Default Snow Map"));
+		if (!m_SnowMap)
+			throw std::runtime_error("Cannot allocate default snow map");
+		{
+			auto initCommands =
+				device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+			const uint8_t zeroPixel[4] = {0, 0, 0, 0};
+			initCommands->open();
+			initCommands->writeTexture(m_SnowMap, 0, 0, zeroPixel, 4);
+			initCommands->close();
+			device->executeCommandList(initCommands);
+			device->waitForIdle();
+		}
+		RebuildFrameBindings();
 		m_ShadowBindings = device->createBindingSet(nvrhi::BindingSetDesc()
 														.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
-														.addItem(nvrhi::BindingSetItem::PushConstants(1, 96)),
+														.addItem(nvrhi::BindingSetItem::PushConstants(1, 112)),
 													m_ShadowLayout);
 		auto shadowPipeline = nvrhi::GraphicsPipelineDesc()
 								  .setVertexShader(m_ShadowShader)
@@ -168,6 +183,71 @@ namespace Bellwether
 		if (!m_VertexShader || !m_FragmentShader || !m_Layout || !m_Camera || !m_Bindings || !m_InputLayout ||
 			!m_ShadowBindings || !m_ShadowPipeline || !m_LinearSampler || !m_ShadowSampler)
 			throw std::runtime_error("World renderer resource initialization failed");
+	}
+
+	void WorldRenderer::RebuildFrameBindings()
+	{
+		m_Bindings = m_Device->createBindingSet(nvrhi::BindingSetDesc()
+													.addItem(nvrhi::BindingSetItem::ConstantBuffer(0, m_Camera))
+													.addItem(nvrhi::BindingSetItem::PushConstants(1, 112))
+													.addItem(nvrhi::BindingSetItem::Texture_SRV(0, m_ShadowMaps[0]))
+													.addItem(nvrhi::BindingSetItem::Texture_SRV(1, m_ShadowMaps[1]))
+													.addItem(nvrhi::BindingSetItem::Texture_SRV(2, m_SnowMap))
+													.addItem(nvrhi::BindingSetItem::Sampler(0, m_ShadowSampler))
+													.addItem(nvrhi::BindingSetItem::Sampler(1, m_LinearSampler)),
+												m_Layout);
+		if (!m_Bindings)
+			throw std::runtime_error("Cannot build world frame binding set");
+	}
+
+	void WorldRenderer::UpdateSnowField(const SnowField& snow)
+	{
+		const uint32_t res = snow.GetResolution();
+		std::vector<uint8_t> pixels;
+		snow.PackRGBA8(pixels);
+		const bool needsRecreate =
+			!m_SnowMap || m_SnowMap->getDesc().width != res || m_SnowMap->getDesc().height != res;
+		nvrhi::TextureHandle targetTexture = m_SnowMap;
+		if (needsRecreate)
+		{
+			targetTexture = m_Device->createTexture(nvrhi::TextureDesc()
+														.setWidth(res)
+														.setHeight(res)
+														.setFormat(nvrhi::Format::RGBA8_UNORM)
+														.setInitialState(nvrhi::ResourceStates::ShaderResource)
+														.setKeepInitialState(true)
+														.setDebugName("Snow Map"));
+			if (!targetTexture)
+				throw std::runtime_error("Cannot allocate GPU snow field map");
+		}
+		auto commands = m_Device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
+		commands->open();
+		commands->writeTexture(targetTexture, 0, 0, pixels.data(), res * 4);
+		commands->close();
+		m_Device->executeCommandList(commands);
+		if (!m_Device->waitForIdle())
+			throw std::runtime_error("Graphics device lost while updating GPU snow field");
+		if (needsRecreate)
+		{
+			m_SnowMap = targetTexture;
+			RebuildFrameBindings();
+		}
+		m_HasSnowMap = true;
+		m_SnowWorldExtent = snow.GetConfig().WorldExtent;
+		m_SnowMaxDepth = snow.GetConfig().MaxDepth;
+	}
+
+	void WorldRenderer::ClearSnowField()
+	{
+		m_HasSnowMap = false;
+		m_SnowWorldExtent = 0.0f;
+	}
+
+	void WorldRenderer::SetTimeSeconds(float timeSeconds)
+	{
+		if (!std::isfinite(timeSeconds))
+			throw std::invalid_argument("Renderer time must be finite");
+		m_TimeSeconds = timeSeconds;
 	}
 
 	WorldRenderer::Mesh WorldRenderer::UploadMesh(nvrhi::ICommandList* commands, const std::vector<float>& vertices,
@@ -372,8 +452,40 @@ namespace Bellwether
 		Instance terrain;
 		terrain.MeshIndex = sourceMeshes.size();
 		terrain.AlbedoRoughness = {.85f, .91f, .98f, .85f};
+		terrain.SurfaceFlags = {1.0f, 0.0f, 0.0f, 0.0f};
 		sourceMeshes.push_back({std::move(vertices), std::move(indices)});
 		instances.push_back(terrain);
+
+		bool loadedSnowBridge = false;
+		SnowField bridgeSnow;
+		const auto depthPath = directory / "depth.u8";
+		if (std::filesystem::exists(depthPath))
+		{
+			uint32_t snowSize = manifest.value("snow_size", uint32_t(0));
+			if (snowSize < 4 || snowSize > 2048)
+				throw std::runtime_error("Invalid snow_size in world bridge manifest");
+			auto depthChars = ReadBinary(depthPath);
+			if (depthChars.size() != static_cast<size_t>(snowSize) * snowSize)
+				throw std::runtime_error("Snow depth.u8 byte count does not match snow_size");
+			std::vector<uint8_t> depthBytes(depthChars.begin(), depthChars.end());
+			std::vector<uint8_t> iceBytes;
+			const auto icePath = directory / "ice.u8";
+			if (std::filesystem::exists(icePath))
+			{
+				auto iceChars = ReadBinary(icePath);
+				if (iceChars.size() != depthBytes.size())
+					throw std::runtime_error("Snow ice.u8 byte count does not match depth.u8");
+				iceBytes.assign(iceChars.begin(), iceChars.end());
+			}
+			SnowFieldConfig snowConfig;
+			snowConfig.Resolution = std::clamp(snowSize, 4u, 1024u);
+			snowConfig.WorldExtent = extent;
+			snowConfig.MaxDepth = 1.5f;
+			snowConfig.BaseDepth = 0.45f;
+			bridgeSnow.Reset(snowConfig);
+			bridgeSnow.LoadExportedBytes(depthBytes, iceBytes, snowSize);
+			loadedSnowBridge = true;
+		}
 		// Malformed files cannot leave an immediate GPU command list open. Only
 		// validated CPU data reaches this upload transaction.
 		std::vector<Mesh> meshes;
@@ -395,6 +507,10 @@ namespace Bellwether
 		m_Materials = std::move(materials.Materials);
 		m_MaterialSamplerCount = materials.SamplerCount;
 		m_Settings = candidateSettings;
+		if (loadedSnowBridge)
+			UpdateSnowField(bridgeSnow);
+		else
+			ClearSnowField();
 	}
 
 	void WorldRenderer::DrawGeometry(nvrhi::ICommandList* commands, nvrhi::IFramebuffer* framebuffer,
@@ -430,9 +546,11 @@ namespace Bellwether
 				glm::mat4 Transform;
 				glm::vec4 AlbedoRoughness;
 				glm::vec4 EmissionMetallic;
+				glm::vec4 SurfaceFlags;
 			};
-			ObjectData object{instance.Transform, instance.AlbedoRoughness, instance.EmissionMetallic};
-			static_assert(sizeof(ObjectData) == 96);
+			ObjectData object{instance.Transform, instance.AlbedoRoughness, instance.EmissionMetallic,
+							  instance.SurfaceFlags};
+			static_assert(sizeof(ObjectData) == 112);
 			commands->setPushConstants(&object, sizeof(object));
 			commands->drawIndexed(nvrhi::DrawArguments().setVertexCount(mesh.IndexCount));
 		}
@@ -525,7 +643,11 @@ namespace Bellwether
 		frame.CameraPosition = glm::vec4(m_Settings.GetCameraPosition(), 1);
 		frame.SunDirection = glm::vec4(glm::normalize(m_Settings.SunDirection), 0);
 		frame.SunRadianceFog = glm::vec4(m_Settings.SunRadiance, m_Settings.FogDensity);
-		frame.RenderParameters = glm::vec4(m_Settings.Shadows ? 1.f : 0.f, 0, 0, 0);
+		frame.RenderParameters =
+			glm::vec4(m_Settings.Shadows ? 1.f : 0.f, m_TimeSeconds, m_SnowWorldExtent, m_SnowMaxDepth);
+		frame.SnowParameters = glm::vec4(m_Settings.SnowCoverage, m_Settings.SnowSparkle, m_Settings.SnowSubsurface,
+										 m_Settings.SnowfallIntensity);
+		frame.WindParameters = glm::vec4(m_Settings.WindVelocity, m_HasSnowMap ? 1.0f : 0.0f);
 		for (size_t cascade = 0; cascade < 2; cascade++)
 		{
 			// Always initialize the sampled maps, including when the lighting toggle is off.
