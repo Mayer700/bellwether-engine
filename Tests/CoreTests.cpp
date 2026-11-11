@@ -302,11 +302,23 @@ int main(int argumentCount, char** arguments)
 			"negative physics mass rejected");
 		featureScene.Deserialize(physCheckpoint);
 		Check(featureScene.Serialize() == physCheckpoint, "physics scene roundtrip restores cleanly");
+		SnowFieldConfig luaSnowConfig;
+		luaSnowConfig.Resolution = 64;
+		luaSnowConfig.WorldExtent = 64.0f;
+		luaSnowConfig.BaseDepth = 0.5f;
+		luaSnowConfig.MaxDepth = 1.5f;
+		SnowField featureSnow(luaSnowConfig);
 		std::ifstream scriptFile(root / "Scenes/FeatureTest.lua");
 		std::string script((std::istreambuf_iterator<char>(scriptFile)), {});
 		std::string error;
-		ScriptRuntime runtime(featureScene);
+		ScriptRuntime runtime(featureScene, &featureSnow);
 		Check(runtime.Execute(script, error), "entire Lua API feature scene: " + error);
+		Check(featureSnow.GetActiveTrackCount() > 0 && featureSnow.Sample({0.0f, 0.0f}).EffectiveDepth < 0.5f &&
+				  featureSnow.Sample({3.0f, 3.0f}).EffectiveDepth < 0.5f,
+			  "Lua snow stamping and melting mutate bound snowfield");
+		Check(featureScene.GetRenderSettings().WindVelocity.x == 4.5f &&
+				  featureScene.GetRenderSettings().SnowfallIntensity == 0.85f,
+			  "Lua wind and snowfall updates mutate render settings");
 		Check(runtime.Update(0.25, error), "Lua update callback");
 		auto ids = featureScene.GetEntities();
 		Check(featureScene.GetEntity(ids.back()).Transform.Translation.x == 0.25f, "Lua update changes scene");
@@ -316,14 +328,32 @@ int main(int argumentCount, char** arguments)
 			 {"Engine.SetPosition(9999, 1, 2, 3)", "Engine.CreateEntity('rolled back'); error('failure')",
 			  "Engine.CreateEntity(123)", "local id = Engine.CreateEntity('ok'); Engine.Rename(id, 456)",
 			  "Engine.SetPosition(1, 0/0, 0, 0)", "Engine.CreateEntity('loop'); while true do end",
-			  "Engine.CreateEntity('')", "local excessive = string.rep('a', 32 * 1024 * 1024)"})
+			  "Engine.CreateEntity('')", "local excessive = string.rep('a', 32 * 1024 * 1024)",
+			  "Engine.SetScale(1, 0, 1, 1)", "Engine.SetRotation(1, 0/0, 0, 0)",
+			  "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.SetWind(4, 0, 0); error('snow rollback')",
+			  "Engine.StampSnow(0, 0, 1.5, 0.3); Engine.StampSnow(0, 0, -1, 0.2)", "Engine.MeltSnow(0, 0, 1, -5, 0.5)",
+			  "Engine.SetWind(500, 0, 0)", "Engine.SetSnowfall(-0.2)",
+			  "Engine.StampSnow(0, 0, 1.5, 0.3); while true do end"})
+		{
+			Scene test = featureScene;
+			SnowField testSnow = featureSnow.Snapshot();
+			auto before = test.Serialize();
+			auto beforeSnow = featureSnow.Snapshot();
+			ScriptRuntime failing(test, &testSnow);
+			Check(!failing.Execute(source, error), "Lua invalid input or instruction budget rejected");
+			Check(test.Serialize() == before, "Lua error rolls back scene mutations");
+			Check(testSnow == beforeSnow, "Lua error rolls back snowfield mutations");
+			Check(!failing.Update(0.1, error), "faulted Lua runtime cannot continue");
+		}
+		for (const auto& missingSnowOp : {"Engine.SetWind(2, 0, 0); return Engine.GetSnowDepth(0, 0)",
+										  "Engine.StampSnow(0, 0, 1, 0.2)", "Engine.MeltSnow(0, 0, 1, 10, 0.5)",
+										  "Engine.GetSnowCompression(0, 0)", "Engine.GetSnowSpeedFactor(0, 0)"})
 		{
 			Scene test = featureScene;
 			auto before = test.Serialize();
-			ScriptRuntime failing(test);
-			Check(!failing.Execute(source, error), "Lua invalid input or instruction budget rejected");
-			Check(test.Serialize() == before, "Lua error rolls back scene mutations");
-			Check(!failing.Update(0.1, error), "faulted Lua runtime cannot continue");
+			ScriptRuntime noSnow(test);
+			Check(!noSnow.Execute(missingSnowOp, error), "snow Lua call rejects cleanly without bound snowfield");
+			Check(test.Serialize() == before, "missing snowfield error rolls back prior weather mutations");
 		}
 		Scene sandboxScene;
 		ScriptRuntime sandbox(sandboxScene);
@@ -331,7 +361,7 @@ int main(int argumentCount, char** arguments)
 							  "and loadfile == nil and pcall == nil and xpcall == nil)",
 							  error),
 			  "sandbox restricts host access and budget interception");
-		Check(ScriptRuntime::GetAPI().size() == 8, "script API manifest");
+		Check(ScriptRuntime::GetAPI().size() == 21, "script API manifest");
 		RenderSettings renderSettings;
 		Check(RenderSettings::Deserialize(renderSettings.Serialize()).Serialize() == renderSettings.Serialize(),
 			  "renderer settings roundtrip");
