@@ -51,17 +51,24 @@ namespace Bellwether
 		static glm::vec3 QuaternionToEuler(const glm::quat& q);
 
 	  private:
+		struct SyncedEntityState
+		{
+			PhysicsBodyHandle Handle = 0;
+			TransformComponent Transform;
+			PhysicsComponent Physics;
+			glm::vec2 PreviousXZ{0.0f};
+		};
+
 		void SyncSceneEntities();
 		PhysicsBodyHandle CreateEntityBody(const Entity& entity);
 
 		Scene& m_Scene;
 		PhysicsWorld m_Physics;
 		SnowField m_SnowField;
-		std::map<EntityID, PhysicsBodyHandle> m_Bodies;
-		std::map<EntityID, glm::vec2> m_PreviousXZ;
+		SceneSnowSettings m_SyncedSnowSettings;
+		std::map<EntityID, SyncedEntityState> m_SyncedEntities;
 		PhysicsBodyHandle m_TerrainHandle = 0;
 		double m_AccumulatedSeconds = 0.0;
 	};
 
 } // namespace Bellwether
-

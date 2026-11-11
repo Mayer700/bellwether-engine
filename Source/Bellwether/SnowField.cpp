@@ -179,18 +179,25 @@ namespace Bellwether
 		};
 
 		float uvStep = 1.0f / static_cast<float>(heightGridSize - 1);
-		float normalScale = 2.0f * m_Config.WorldExtent / static_cast<float>(heightGridSize - 1);
+		float cellWorldStep = m_Config.WorldExtent * uvStep;
 		std::vector<SnowCell> next(m_Cells.size());
 		for (uint32_t z = 0; z < m_Config.Resolution; z++)
 		{
 			float v = static_cast<float>(z) / static_cast<float>(m_Config.Resolution - 1);
+			float v0 = std::max(0.0f, v - uvStep);
+			float v1 = std::min(1.0f, v + uvStep);
+			float spanZ = std::max(1e-5f, (v1 - v0) * m_Config.WorldExtent);
 			for (uint32_t x = 0; x < m_Config.Resolution; x++)
 			{
 				float u = static_cast<float>(x) / static_cast<float>(m_Config.Resolution - 1);
+				float u0 = std::max(0.0f, u - uvStep);
+				float u1 = std::min(1.0f, u + uvStep);
+				float spanX = std::max(1e-5f, (u1 - u0) * m_Config.WorldExtent);
+				(void)cellWorldStep;
 				float h = sampleHeight(u, v);
-				glm::vec3 normal =
-					glm::normalize(glm::vec3(sampleHeight(u - uvStep, v) - sampleHeight(u + uvStep, v), normalScale,
-											 sampleHeight(u, v - uvStep) - sampleHeight(u, v + uvStep)));
+				float dhdx = (sampleHeight(u1, v) - sampleHeight(u0, v)) / spanX;
+				float dhdz = (sampleHeight(u, v1) - sampleHeight(u, v0)) / spanZ;
+				glm::vec3 normal = glm::normalize(glm::vec3(-dhdx, 1.0f, -dhdz));
 				float slopeWeight = SmoothStep(slopeCutoff * 0.65f, std::min(1.0f, slopeCutoff + 0.16f), normal.y);
 				float altWeight = SmoothStep(timberlineHeight - 4.0f, timberlineHeight + 6.0f, h);
 				SnowCell cell{};
@@ -279,7 +286,6 @@ namespace Bellwether
 		int minZ = std::clamp(static_cast<int>(std::floor((minWorld.y + halfExtent) / cellSize)), 0, maxIndex);
 		int maxZ = std::clamp(static_cast<int>(std::ceil((maxWorld.y + halfExtent) / cellSize)), 0, maxIndex);
 
-		float radiusSq = radius * radius;
 		float outerRadiusSq = outerRadius * outerRadius;
 		float displacedVolume = 0.0f;
 		bool changed = false;
@@ -332,7 +338,6 @@ namespace Bellwether
 						rimWeightSum += weight;
 					}
 				}
-				(void)radiusSq;
 			}
 		}
 
@@ -447,14 +452,24 @@ namespace Bellwether
 		float accumulate = snowfallRate * dt;
 		float warmMelt = ambientCelsius > 0.0f ? ambientCelsius * 0.004f * dt : 0.0f;
 		float freezeRate = ambientCelsius < -1.5f ? (-ambientCelsius - 1.5f) * 0.015f * dt : 0.0f;
-
-		std::vector<SnowCell> next = m_Cells;
-		uint32_t res = m_Config.Resolution;
-		glm::vec2 windDir = windSpeed > 1e-4f ? windVelocity / windSpeed : glm::vec2(0.0f);
 		float advectAlpha =
 			windSpeed > 0.01f
 				? std::clamp(windSpeed * m_Config.WindDriftStrength * dt / std::max(0.25f, cellSize), 0.0f, 0.38f)
 				: 0.0f;
+
+		if (accumulate == 0.0f && advectAlpha == 0.0f && warmMelt == 0.0f && (heal == 0.0f || windSpeed <= 0.25f))
+		{
+			if (freezeRate <= 0.0f)
+				return;
+			bool hasMoisture =
+				std::any_of(m_Cells.begin(), m_Cells.end(), [](const SnowCell& cell) { return cell.Moisture > 0.0f; });
+			if (!hasMoisture)
+				return;
+		}
+
+		std::vector<SnowCell> next = m_Cells;
+		uint32_t res = m_Config.Resolution;
+		glm::vec2 windDir = windSpeed > 1e-4f ? windVelocity / windSpeed : glm::vec2(0.0f);
 
 		auto sampleOld = [&](float fx, float fz) -> SnowCell
 		{
@@ -481,12 +496,14 @@ namespace Bellwether
 							lerpField(&SnowCell::Moisture)};
 		};
 
+		bool anyChanged = false;
 		for (uint32_t z = 0; z < res; z++)
 		{
 			for (uint32_t x = 0; x < res; x++)
 			{
 				size_t idx = static_cast<size_t>(z) * res + x;
-				SnowCell cell = m_Cells[idx];
+				const SnowCell& original = m_Cells[idx];
+				SnowCell cell = original;
 
 				if (advectAlpha > 0.0f)
 				{
@@ -530,12 +547,17 @@ namespace Bellwether
 				cell.Displacement = std::clamp(cell.Displacement, 0.0f, m_Config.MaxDepth * 0.45f);
 				cell.Ice = std::clamp(cell.Ice, 0.0f, 1.0f);
 				cell.Moisture = std::clamp(cell.Moisture, 0.0f, 1.0f);
+				if (cell != original)
+					anyChanged = true;
 				next[idx] = cell;
 			}
 		}
 
-		m_Cells = std::move(next);
-		m_MutationCounter++;
+		if (anyChanged)
+		{
+			m_Cells = std::move(next);
+			m_MutationCounter++;
+		}
 	}
 
 	SnowSample SnowField::Sample(glm::vec2 worldXZ) const

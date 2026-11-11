@@ -70,16 +70,16 @@ namespace Bellwether
 	void SceneSimulation::RebuildFromScene()
 	{
 		m_Scene.GetSnowSettings().Validate();
-		for (const auto& [entityID, bodyHandle] : m_Bodies)
+		for (const auto& [entityID, synced] : m_SyncedEntities)
 		{
 			(void)entityID;
-			if (m_Physics.Exists(bodyHandle))
-				m_Physics.DestroyBody(bodyHandle);
+			if (m_Physics.Exists(synced.Handle))
+				m_Physics.DestroyBody(synced.Handle);
 		}
-		m_Bodies.clear();
-		m_PreviousXZ.clear();
+		m_SyncedEntities.clear();
 
-		m_SnowField.Reset(m_Scene.GetSnowSettings().ToFieldConfig());
+		m_SyncedSnowSettings = m_Scene.GetSnowSettings();
+		m_SnowField.Reset(m_SyncedSnowSettings.ToFieldConfig());
 
 		for (EntityID id : m_Scene.GetEntities())
 		{
@@ -87,8 +87,9 @@ namespace Bellwether
 			if (!entity.Physics.Enabled)
 				continue;
 			PhysicsBodyHandle handle = CreateEntityBody(entity);
-			m_Bodies.emplace(id, handle);
-			m_PreviousXZ.emplace(id, glm::vec2(entity.Transform.Translation.x, entity.Transform.Translation.z));
+			m_SyncedEntities.emplace(
+				id, SyncedEntityState{handle, entity.Transform, entity.Physics,
+									  glm::vec2(entity.Transform.Translation.x, entity.Transform.Translation.z)});
 		}
 	}
 
@@ -113,15 +114,24 @@ namespace Bellwether
 
 	void SceneSimulation::SyncSceneEntities()
 	{
-		for (auto it = m_Bodies.begin(); it != m_Bodies.end();)
+		const auto& snowSettings = m_Scene.GetSnowSettings();
+		if (snowSettings != m_SyncedSnowSettings)
+		{
+			snowSettings.Validate();
+			const auto nextConfig = snowSettings.ToFieldConfig();
+			if (nextConfig != m_SnowField.GetConfig())
+				m_SnowField.Reset(nextConfig);
+			m_SyncedSnowSettings = snowSettings;
+		}
+
+		for (auto it = m_SyncedEntities.begin(); it != m_SyncedEntities.end();)
 		{
 			EntityID id = it->first;
 			if (!m_Scene.Exists(id) || !m_Scene.GetEntity(id).Physics.Enabled)
 			{
-				if (m_Physics.Exists(it->second))
-					m_Physics.DestroyBody(it->second);
-				m_PreviousXZ.erase(id);
-				it = m_Bodies.erase(it);
+				if (m_Physics.Exists(it->second.Handle))
+					m_Physics.DestroyBody(it->second.Handle);
+				it = m_SyncedEntities.erase(it);
 			}
 			else
 			{
@@ -132,11 +142,37 @@ namespace Bellwether
 		for (EntityID id : m_Scene.GetEntities())
 		{
 			const Entity& entity = m_Scene.GetEntity(id);
-			if (entity.Physics.Enabled && !m_Bodies.contains(id))
+			if (!entity.Physics.Enabled)
+				continue;
+
+			auto it = m_SyncedEntities.find(id);
+			if (it == m_SyncedEntities.end())
 			{
 				PhysicsBodyHandle handle = CreateEntityBody(entity);
-				m_Bodies.emplace(id, handle);
-				m_PreviousXZ.emplace(id, glm::vec2(entity.Transform.Translation.x, entity.Transform.Translation.z));
+				m_SyncedEntities.emplace(
+					id, SyncedEntityState{handle, entity.Transform, entity.Physics,
+										  glm::vec2(entity.Transform.Translation.x, entity.Transform.Translation.z)});
+				continue;
+			}
+
+			auto& synced = it->second;
+			if (entity.Physics != synced.Physics || entity.Transform.Scale != synced.Transform.Scale)
+			{
+				entity.Physics.Validate();
+				if (m_Physics.Exists(synced.Handle))
+					m_Physics.DestroyBody(synced.Handle);
+				synced.Handle = CreateEntityBody(entity);
+				synced.Physics = entity.Physics;
+				synced.Transform = entity.Transform;
+				synced.PreviousXZ = {entity.Transform.Translation.x, entity.Transform.Translation.z};
+			}
+			else if (entity.Transform.Translation != synced.Transform.Translation ||
+					 entity.Transform.Rotation != synced.Transform.Rotation)
+			{
+				m_Physics.SetBodyTransform(synced.Handle, entity.Transform.Translation,
+										   EulerToQuaternion(entity.Transform.Rotation));
+				synced.Transform = entity.Transform;
+				synced.PreviousXZ = {entity.Transform.Translation.x, entity.Transform.Translation.z};
 			}
 		}
 	}
@@ -155,7 +191,7 @@ namespace Bellwether
 			const glm::vec2 wind(renderSettings.WindVelocity.x, renderSettings.WindVelocity.z);
 			m_SnowField.StepWeather(dt, snowfallRate, wind, -6.0f);
 
-			for (const auto& [id, bodyHandle] : m_Bodies)
+			for (const auto& [id, synced] : m_SyncedEntities)
 			{
 				const Entity& entity = m_Scene.GetEntity(id);
 				if (entity.Physics.Motion != PhysicsMotion::Dynamic || !entity.Physics.SnowTracking)
@@ -166,23 +202,23 @@ namespace Bellwether
 				radius = std::max(
 					0.05f, radius * std::max(std::abs(entity.Transform.Scale.x), std::abs(entity.Transform.Scale.z)));
 				float pressure = std::clamp(entity.Physics.Mass * 0.012f, 0.08f, snowSettings.MaxDepth * 0.6f);
-				glm::vec2 prevXZ = m_PreviousXZ[id];
-				m_Physics.ApplySnowInteraction(bodyHandle, m_SnowField, prevXZ, radius, entity.Physics.SnowDrag,
-											   pressure);
+				m_Physics.ApplySnowInteraction(synced.Handle, m_SnowField, synced.PreviousXZ, radius,
+											   entity.Physics.SnowDrag, pressure);
 			}
 		}
 
 		m_Physics.StepFixed();
 
-		for (const auto& [id, bodyHandle] : m_Bodies)
+		for (auto& [id, synced] : m_SyncedEntities)
 		{
 			Entity& entity = m_Scene.GetEntity(id);
-			const auto state = m_Physics.GetBodyState(bodyHandle);
-			m_PreviousXZ[id] = {state.Position.x, state.Position.z};
+			const auto state = m_Physics.GetBodyState(synced.Handle);
+			synced.PreviousXZ = {state.Position.x, state.Position.z};
 			if (entity.Physics.Motion == PhysicsMotion::Dynamic)
 			{
 				entity.Transform.Translation = state.Position;
 				entity.Transform.Rotation = QuaternionToEuler(state.Rotation);
+				synced.Transform = entity.Transform;
 			}
 		}
 	}
@@ -212,29 +248,30 @@ namespace Bellwether
 
 	bool SceneSimulation::ApplyEntityImpulse(EntityID id, const glm::vec3& impulse)
 	{
-		auto it = m_Bodies.find(id);
-		if (it == m_Bodies.end())
+		auto it = m_SyncedEntities.find(id);
+		if (it == m_SyncedEntities.end())
 			return false;
-		m_Physics.AddImpulse(it->second, impulse);
+		m_Physics.AddImpulse(it->second.Handle, impulse);
 		return true;
 	}
 
 	void SceneSimulation::SetEntityVelocity(EntityID id, const glm::vec3& velocity)
 	{
-		auto it = m_Bodies.find(id);
-		if (it == m_Bodies.end())
+		auto it = m_SyncedEntities.find(id);
+		if (it == m_SyncedEntities.end())
 			throw std::invalid_argument("Entity does not have an active physics body");
-		m_Physics.SetLinearVelocity(it->second, velocity);
+		m_Physics.SetLinearVelocity(it->second.Handle, velocity);
 	}
 
 	bool SceneSimulation::HasPhysicsBody(EntityID id) const
 	{
-		return m_Bodies.contains(id) && m_Physics.Exists(m_Bodies.at(id));
+		auto it = m_SyncedEntities.find(id);
+		return it != m_SyncedEntities.end() && m_Physics.Exists(it->second.Handle);
 	}
 
 	PhysicsBodyHandle SceneSimulation::GetPhysicsBody(EntityID id) const
 	{
-		return m_Bodies.at(id);
+		return m_SyncedEntities.at(id).Handle;
 	}
 
 } // namespace Bellwether

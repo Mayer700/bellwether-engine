@@ -310,6 +310,7 @@ namespace Bellwether
 		{
 			JPH::BodyID ID;
 			PhysicsMotion Motion;
+			float BaseFriction = 0.5f;
 		};
 
 		explicit Implementation(const PhysicsWorldSettings& settings)
@@ -460,7 +461,8 @@ namespace Bellwether
 		else
 			shape = new JPH::SphereShape(settings.Radius);
 		const auto handle = AllocateHandle();
-		const auto record = world.Bodies.emplace(handle, Implementation::BodyRecord{{}, settings.Motion}).first;
+		const auto record =
+			world.Bodies.emplace(handle, Implementation::BodyRecord{{}, settings.Motion, settings.Friction}).first;
 		auto& bodies = world.System.GetBodyInterface();
 		JPH::Body* body = nullptr;
 		bool added = false;
@@ -518,7 +520,9 @@ namespace Bellwether
 									 shapeResult.GetError().c_str());
 
 		const auto handle = AllocateHandle();
-		const auto record = world.Bodies.emplace(handle, Implementation::BodyRecord{{}, PhysicsMotion::Static}).first;
+		const auto record =
+			world.Bodies.emplace(handle, Implementation::BodyRecord{{}, PhysicsMotion::Static, settings.Friction})
+				.first;
 		auto& bodies = world.System.GetBodyInterface();
 		JPH::Body* body = nullptr;
 		bool added = false;
@@ -655,18 +659,27 @@ namespace Bellwether
 		ValidateRange(pressureDepth, 0.0f, 10.0f, "Snow pressure depth");
 
 		const auto state = GetBodyState(handle);
-		const auto groundCheck = Raycast(state.Position, {0.0f, -(contactRadius + 1.25f), 0.0f}, 0xff, handle);
-		if (!groundCheck.has_value())
-			return false;
-
 		const glm::vec2 currentXZ(state.Position.x, state.Position.z);
 		const auto sample = snow.Sample(currentXZ);
+		const float centerToBottom = std::max(0.05f, state.Position.y - world.GetBounds(record.ID).mMin.GetY());
+		const float snowContactMargin = std::max(0.18f, sample.EffectiveDepth);
+		const auto groundCheck =
+			Raycast(state.Position, {0.0f, -(centerToBottom + snowContactMargin), 0.0f}, 0xff, handle);
+		if (!groundCheck.has_value())
+		{
+			world.System.GetBodyInterface().SetFriction(record.ID, record.BaseFriction);
+			return false;
+		}
+
 		bool stamped = false;
 		if (pressureDepth > 0.0f && sample.BaseDepth > 0.01f)
 		{
 			const float appliedPressure = std::min(sample.BaseDepth, pressureDepth);
 			stamped = snow.StampSegment(previousXZ, currentXZ, contactRadius, appliedPressure);
 		}
+
+		const float modulatedFriction = std::clamp(record.BaseFriction * sample.FrictionFactor, 0.01f, 1.0f);
+		world.System.GetBodyInterface().SetFriction(record.ID, modulatedFriction);
 
 		const float snowResistance = (1.0f - sample.SpeedFactor) * (1.0f - sample.Ice * 0.75f);
 		const float dt = static_cast<float>(world.Settings.FixedStepSeconds);

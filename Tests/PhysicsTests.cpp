@@ -646,12 +646,28 @@ namespace
 					"snow interaction rejects static body");
 
 			auto airborne = sled;
-			airborne.Position = {0.0f, 12.0f, 0.0f};
+			airborne.Position = {0.0f, 1.25f, 0.0f}; // 0.80m clear above floor (> snow depth)
 			airborne.LinearVelocity = {2.0f, 0.0f, 0.0f};
 			const auto flying = world.CreateBody(airborne);
 			const bool carvedAir = world.ApplySnowInteraction(flying, snow, {-0.5f, 0.0f}, 0.45f, 4.0f, 0.3f);
-			Check(!carvedAir && snow.GetActiveTrackCount() == 0, "airborne body does not carve phantom snow tracks");
+			Check(!carvedAir && snow.GetActiveTrackCount() == 0,
+				  "near-airborne body above snow depth does not carve phantom snow tracks");
 			world.DestroyBody(flying);
+
+			// Tall dynamic capsule on ground still detects floor accurately via AABB bottom
+			PhysicsBodySettings tallSettings;
+			tallSettings.Shape = PhysicsShape::Capsule;
+			tallSettings.Motion = PhysicsMotion::Dynamic;
+			tallSettings.HalfHeight = 1.5f;
+			tallSettings.Radius = 0.4f;
+			tallSettings.Position = {-4.0f, 1.9f, 4.0f};
+			tallSettings.LinearVelocity = {2.0f, 0.0f, 0.0f};
+			const auto tallCapsule = world.CreateBody(tallSettings);
+			SnowField tallSnow(snow.GetConfig());
+			const bool tallCarved = world.ApplySnowInteraction(tallCapsule, tallSnow, {-4.5f, 4.0f}, 0.4f, 2.0f, 0.25f);
+			Check(tallCarved && tallSnow.GetActiveTrackCount() > 0,
+				  "tall dynamic capsule resting on floor interacts with snowfield");
+			world.DestroyBody(tallCapsule);
 
 			glm::vec2 prevXZ(sled.Position.x, sled.Position.z);
 			for (int tick = 0; tick < 60; ++tick)
@@ -711,6 +727,32 @@ namespace
 		Check(scene.GetEntity(2).Transform.Translation.x > -4.5f &&
 				  sim.GetSnowField().Sample({-4.5f, 0.0f}).Compression > 0.05f,
 			  "SceneSimulation updates entity transforms and carves snow tracks");
+
+		// External Transform teleport moves physics body without smearing snow tracks across the middle
+		scene.GetEntity(2).Transform.Translation = {6.0f, 0.5f, 0.0f};
+		sim.SetEntityVelocity(2, {2.0f, 0.0f, 0.0f});
+		sim.Step(1.0 / 60.0);
+		Check(scene.GetEntity(2).Transform.Translation.x > 5.9f &&
+				  sim.GetSnowField().Sample({0.0f, 0.0f}).Compression < 0.001f,
+			  "SceneSimulation syncs external teleport without smearing phantom tracks");
+
+		// External PhysicsComponent change recreates body cleanly
+		scene.GetEntity(2).Physics.Shape = PhysicsShape::Box;
+		scene.GetEntity(2).Physics.HalfExtents = {1.0f, 0.5f, 1.0f};
+		scene.GetEntity(2).Physics.Mass = 90.0f;
+		const auto handleBeforeRecreate = sim.GetPhysicsBody(2);
+		sim.Step(1.0 / 60.0);
+		Check(sim.GetPhysicsBody(2) != handleBeforeRecreate && sim.HasPhysicsBody(2),
+			  "SceneSimulation recreates physics body when PhysicsComponent mutates");
+
+		// External SceneSnowSettings update reconfigures SnowField
+		auto updatedSnow = scene.GetSnowSettings();
+		updatedSnow.BaseDepth = 0.85f;
+		scene.SetSnowSettings(updatedSnow);
+		sim.Step(1.0 / 60.0);
+		Check(sim.GetSnowField().GetConfig().BaseDepth > 0.8f,
+			  "SceneSimulation reconfigures SnowField when SceneSnowSettings change");
+
 		scene.DestroyEntity(2);
 		sim.Step(1.0 / 60.0);
 		Check(!sim.HasPhysicsBody(2), "SceneSimulation cleans up physics body after entity destruction");

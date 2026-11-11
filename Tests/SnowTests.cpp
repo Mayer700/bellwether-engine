@@ -95,7 +95,7 @@ int main()
 				  snow.Sample({0.0f, 0.0f}).Compression < centerTrack.Compression,
 			  "snowfall and wind drift gradually heal old tracks");
 
-		// Heightfield slope & cliff shedding
+		// Heightfield slope & cliff shedding (including boundary edge spans)
 		std::vector<float> cliffHeights(64 * 64, 0.0f);
 		for (uint32_t z = 0; z < 64; z++)
 			for (uint32_t x = 0; x < 64; x++)
@@ -103,8 +103,16 @@ int main()
 		SnowField terrainSnow(config);
 		terrainSnow.InitializeFromHeightfield(cliffHeights, 64, 0.75f, -50.0f);
 		Check(terrainSnow.Sample({-16.0f, 0.0f}).BaseDepth > 0.45f &&
-				  terrainSnow.Sample({16.0f, 0.0f}).BaseDepth < 0.15f,
-			  "steep slopes shed snow compared to flat terrain");
+				  terrainSnow.Sample({16.0f, 0.0f}).BaseDepth < 0.15f &&
+				  terrainSnow.Sample({31.9f, 0.0f}).BaseDepth < 0.15f,
+			  "steep slopes including grid boundaries shed snow compared to flat terrain");
+
+		// No-op weather step preserves MutationCounter
+		const uint64_t mutBeforeNoop = snow.GetMutationCounter();
+		snow.StepWeather(0.0f, 0.1f, {2.0f, 0.0f}, -6.0f);
+		snow.StepWeather(1.0f, 0.0f, {0.0f, 0.0f}, -6.0f);
+		Check(snow.GetMutationCounter() == mutBeforeNoop,
+			  "zero-dt and calm zero-snowfall dry weather steps do not bump mutation counter");
 
 		// Binary track persistence + corruption rollback
 		auto trackPath = std::filesystem::current_path() / "Evidence/TestTracks.bwsn";
