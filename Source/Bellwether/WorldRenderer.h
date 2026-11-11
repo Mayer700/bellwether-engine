@@ -14,6 +14,8 @@ namespace Bellwether
 		void Load(const std::filesystem::path& directory);
 		void LoadModel(const std::filesystem::path& path);
 		void LoadScene(const Scene& scene, const std::filesystem::path& assetRoot);
+		void LoadAsset(const ModelAsset& asset, const RenderSettings& settings, const SnowField* snow = nullptr);
+		void SetInstanceTransform(size_t instanceIndex, const glm::mat4& transform, bool visible = true);
 		void UpdateSnowField(const SnowField& snow);
 		void ClearSnowField();
 		bool HasSnowField() const
@@ -64,6 +66,7 @@ namespace Bellwether
 			glm::vec4 AlbedoRoughness{1};
 			glm::vec4 EmissionMetallic{0};
 			glm::vec4 SurfaceFlags{0};
+			bool Visible = true;
 		};
 		struct Material
 		{

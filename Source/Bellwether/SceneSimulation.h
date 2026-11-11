@@ -18,8 +18,11 @@ namespace Bellwether
 		explicit SceneSimulation(Scene& scene, const PhysicsWorldSettings& physicsSettings = {});
 
 		void RebuildFromScene();
+		void SyncFromScene();
 		void SetTerrainHeightfield(const std::vector<float>& heights, uint32_t sampleCount, float worldExtent,
 								   float slopeCutoff = 0.68f, float timberlineHeight = -1000.0f);
+		void SetAmbientCelsius(float celsius);
+		float GetAmbientCelsius() const;
 
 		void StepFixed();
 		uint32_t Step(double elapsedSeconds);
@@ -69,6 +72,7 @@ namespace Bellwether
 		std::map<EntityID, SyncedEntityState> m_SyncedEntities;
 		PhysicsBodyHandle m_TerrainHandle = 0;
 		double m_AccumulatedSeconds = 0.0;
+		float m_AmbientCelsius = -6.0f;
 	};
 
 } // namespace Bellwether

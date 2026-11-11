@@ -9,4 +9,5 @@ namespace Bellwether
 						const std::filesystem::path& fixtureDirectory);
 	Json VerifySnowRenderer(nvrhi::IDevice* device, WorldRenderer& world, const std::filesystem::path& outputDirectory,
 							const std::filesystem::path& fixtureDirectory);
+	Json VerifySnowSandbox(nvrhi::IDevice* device, WorldRenderer& world, const std::filesystem::path& outputDirectory);
 } // namespace Bellwether

@@ -756,6 +756,35 @@ namespace
 		scene.DestroyEntity(2);
 		sim.Step(1.0 / 60.0);
 		Check(!sim.HasPhysicsBody(2), "SceneSimulation cleans up physics body after entity destruction");
+
+		// Immediate scene-to-physics sync + ambient temperature control
+		sim.SetAmbientCelsius(-18.5f);
+		Check(std::abs(sim.GetAmbientCelsius() - (-18.5f)) < 1e-4f,
+			  "SceneSimulation stores validated ambient temperature");
+		bool rejectedBadTemp = false;
+		try
+		{
+			sim.SetAmbientCelsius(150.0f);
+		}
+		catch (const std::invalid_argument&)
+		{
+			rejectedBadTemp = true;
+		}
+		Check(rejectedBadTemp, "SceneSimulation rejects out-of-range ambient temperature");
+
+		EntityID instantId = scene.CreateEntity("InstantSyncBox");
+		auto& instant = scene.GetEntity(instantId);
+		instant.Transform.Translation = {4.0f, 3.0f, 0.0f};
+		instant.Physics.Enabled = true;
+		instant.Physics.Motion = PhysicsMotion::Dynamic;
+		instant.Physics.Shape = PhysicsShape::Box;
+		instant.Physics.HalfExtents = {0.5f, 0.5f, 0.5f};
+		sim.SyncFromScene();
+		Check(sim.HasPhysicsBody(instantId), "SceneSimulation::SyncFromScene registers new entity immediately");
+		sim.SetEntityVelocity(instantId, {6.0f, 0.0f, 0.0f});
+		sim.Step(1.0 / 60.0);
+		Check(scene.GetEntity(instantId).Transform.Translation.x > 4.05f,
+			  "Entity velocity applied right after SyncFromScene advances position on next step");
 	}
 
 } // namespace

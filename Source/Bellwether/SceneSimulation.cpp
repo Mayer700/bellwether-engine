@@ -93,6 +93,23 @@ namespace Bellwether
 		}
 	}
 
+	void SceneSimulation::SyncFromScene()
+	{
+		SyncSceneEntities();
+	}
+
+	void SceneSimulation::SetAmbientCelsius(float celsius)
+	{
+		if (!std::isfinite(celsius) || celsius < -100.0f || celsius > 100.0f)
+			throw std::invalid_argument("Ambient temperature must be finite and in [-100, 100] C");
+		m_AmbientCelsius = celsius;
+	}
+
+	float SceneSimulation::GetAmbientCelsius() const
+	{
+		return m_AmbientCelsius;
+	}
+
 	void SceneSimulation::SetTerrainHeightfield(const std::vector<float>& heights, uint32_t sampleCount,
 												float worldExtent, float slopeCutoff, float timberlineHeight)
 	{
@@ -189,7 +206,7 @@ namespace Bellwether
 		{
 			const float snowfallRate = renderSettings.SnowfallIntensity * 0.025f;
 			const glm::vec2 wind(renderSettings.WindVelocity.x, renderSettings.WindVelocity.z);
-			m_SnowField.StepWeather(dt, snowfallRate, wind, -6.0f);
+			m_SnowField.StepWeather(dt, snowfallRate, wind, m_AmbientCelsius);
 
 			for (const auto& [id, synced] : m_SyncedEntities)
 			{

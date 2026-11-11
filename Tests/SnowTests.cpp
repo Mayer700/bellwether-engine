@@ -1,4 +1,5 @@
 #include "Bellwether/SnowField.h"
+#include "Bellwether/SnowSandbox.h"
 
 #include <cmath>
 #include <filesystem>
@@ -150,6 +151,89 @@ int main()
 		Rejects([&] { snow.StampCircle({0.0f, 0.0f}, 0.0f, 0.2f); }, "zero stamp radius rejected");
 		Rejects([&] { snow.ApplyHeatSource({0.0f, 0.0f}, 1.0f, -5.0f, 1.0f); }, "negative heat rejected");
 		Rejects([&] { snow.StepWeather(-1.0f, 0.1f, {0.0f, 0.0f}); }, "negative weather dt rejected");
+
+		// Real-time SnowSandbox tests (all scenarios, snow-coupled sleds, melt/freeze, launch pooling, raycasting)
+		Check(ParseSnowScenario("tracks") == SnowTestScenario::TracksAndPhysics, "ParseSnowScenario tracks");
+		Check(ParseSnowScenario("melt") == SnowTestScenario::ThermalMeltAndIce, "ParseSnowScenario melt");
+		Check(ParseSnowScenario("blizzard") == SnowTestScenario::BlizzardDrift, "ParseSnowScenario blizzard");
+		Check(ParseSnowScenario("sparkle") == SnowTestScenario::SunnySparkle, "ParseSnowScenario sparkle");
+		Rejects([] { ParseSnowScenario("invalid_mode"); }, "ParseSnowScenario rejects unknown scenario");
+
+		SnowSandbox sandbox(SnowTestScenario::TracksAndPhysics);
+		Check(sandbox.GetRenderAsset().Primitives.size() >= 3 && sandbox.GetRenderAsset().Placements.size() >= 10,
+			  "SnowSandbox builds complete procedural alpine geometry");
+		for (int i = 0; i < 90; ++i)
+			sandbox.Step(1.0f / 60.0f);
+		const EntityID powderId = sandbox.GetPrimaryPowderSled();
+		const EntityID iceId = sandbox.GetPrimaryIceSled();
+		Check(sandbox.GetScene().Exists(powderId) && sandbox.GetScene().Exists(iceId) &&
+				  sandbox.GetScene().GetEntity(iceId).Transform.Translation.x >
+					  sandbox.GetScene().GetEntity(powderId).Transform.Translation.x + 0.15f,
+			  "SnowSandbox twin sled simulation demonstrates ice vs deep-powder drag");
+
+		const uint64_t mutBeforeStamp = sandbox.GetSnowMutationCounter();
+		Check(sandbox.StampStroke({-6.0f, 9.0f}, {6.0f, 9.0f}, 1.5f, 0.34f) &&
+				  sandbox.GetSnowMutationCounter() > mutBeforeStamp,
+			  "SnowSandbox StampStroke modifies SnowField and advances mutation counter");
+
+		// Pool recycling across 10 launches (exceeding 8 dynamic user slots cleanly)
+		EntityID firstLaunch = 0;
+		EntityID tenthLaunch = 0;
+		for (int launch = 0; launch < 10; ++launch)
+		{
+			EntityID spawned =
+				sandbox.LaunchSled({-8.0f, -2.0f + float(launch) * 0.6f}, {10.0f, 0.0f}, (launch % 2) == 1);
+			if (launch == 0)
+				firstLaunch = spawned;
+			tenthLaunch = spawned;
+		}
+		Check(tenthLaunch != 0 && tenthLaunch != firstLaunch && sandbox.GetScene().Exists(tenthLaunch),
+			  "SnowSandbox LaunchSled recycles dynamic entity pool safely beyond 8 launches");
+
+		const auto dynInstances = sandbox.GetDynamicInstances();
+		bool allDynValid = !dynInstances.empty();
+		for (const auto& inst : dynInstances)
+		{
+			if (inst.PlacementIndex >= sandbox.GetRenderAsset().Placements.size() ||
+				std::abs(glm::determinant(glm::mat3(inst.Transform))) < 1e-6f)
+				allDynValid = false;
+		}
+		Check(allDynValid, "SnowSandbox dynamic instance transforms stay valid and non-singular");
+
+		// Melt & sub-zero freeze scenario
+		sandbox.ResetScenario(SnowTestScenario::ThermalMeltAndIce);
+		const glm::vec2 meltSpot(2.5f, 10.5f);
+		const float preMeltDepth = sandbox.SampleAt(meltSpot).EffectiveDepth;
+		Check(sandbox.MeltAt(meltSpot, 3.6f, 1.4f, 0.25f) &&
+				  sandbox.SampleAt(meltSpot).EffectiveDepth < preMeltDepth,
+			  "SnowSandbox MeltAt melts snow around target point");
+		sandbox.TriggerColdSnapFreeze(2.5f);
+		for (int i = 0; i < 120; ++i)
+			sandbox.Step(1.0f / 60.0f);
+		Check(sandbox.SampleAt(meltSpot).Ice > 0.20f && sandbox.GetAmbientCelsius() < -15.0f,
+			  "SnowSandbox cold snap freezes wet snow into slick surface ice");
+
+		// Blizzard drift & raycast ground queries
+		sandbox.ResetScenario(SnowTestScenario::BlizzardDrift);
+		sandbox.StampAt({0.0f, 4.0f}, 1.8f, 0.42f);
+		const float carvedInBlizzard = sandbox.SampleAt({0.0f, 4.0f}).EffectiveDepth;
+		for (int i = 0; i < 90; ++i)
+			sandbox.Step(1.0f / 60.0f);
+		Check(sandbox.SampleAt({0.0f, 4.0f}).EffectiveDepth > carvedInBlizzard + 0.01f,
+			  "SnowSandbox BlizzardDrift snowfall heals carved tracks");
+
+		sandbox.ResetScenario(SnowTestScenario::SunnySparkle);
+		sandbox.CycleWindPreset(1);
+		sandbox.CycleSparklePreset(1);
+		Check(sandbox.RaycastGround({0.0f, 100.0f, 4.0f}, {0.0f, -200.0f, 0.0f}).has_value() &&
+				  !sandbox.RaycastGround({200.0f, 100.0f, 200.0f}, {0.0f, -200.0f, 0.0f}).has_value(),
+			  "SnowSandbox RaycastGround discriminates hits inside and outside alpine terrain");
+
+		Rejects([&] { sandbox.Step(-0.05f); }, "SnowSandbox Step rejects negative dt");
+		Rejects([&] { sandbox.Step(std::numeric_limits<float>::infinity()); }, "SnowSandbox Step rejects Inf dt");
+		Rejects([&] { sandbox.TriggerColdSnapFreeze(-1.0f); }, "SnowSandbox TriggerColdSnapFreeze rejects <= 0s");
+		Rejects([&] { sandbox.LaunchSled({std::numeric_limits<float>::quiet_NaN(), 0.0f}, {1.0f, 0.0f}); },
+				"SnowSandbox LaunchSled rejects NaN origin");
 
 		std::cout << "BELLWETHER_SNOW " << s_Passed << " passed " << s_Failed << " failed\n";
 		return s_Failed ? 1 : 0;

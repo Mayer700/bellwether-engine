@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include "RenderSettings.h"
+#include "SnowSandbox.h"
 
 namespace Bellwether
 {
@@ -22,6 +23,7 @@ namespace Bellwether
 		void LoadWorld(const std::filesystem::path& directory);
 		void LoadModel(const std::filesystem::path& path);
 		void LoadScene(const std::filesystem::path& path);
+		void LoadSnowSandbox(SnowTestScenario scenario = SnowTestScenario::TracksAndPhysics);
 		void CaptureWorld(const std::filesystem::path& output);
 		std::string GetDeviceName() const;
 		unsigned GetValidationErrors() const;
@@ -37,6 +39,7 @@ namespace Bellwether
 								 const std::filesystem::path& fixtureDirectory);
 		void VerifySnowRenderer(const std::filesystem::path& outputDirectory,
 								const std::filesystem::path& fixtureDirectory);
+		void VerifySnowSandbox(const std::filesystem::path& outputDirectory);
 
 	  private:
 		class Implementation;

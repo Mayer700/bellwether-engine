@@ -541,6 +541,8 @@ namespace Bellwether
 				nvrhi::ViewportState().addViewportAndScissorRect(nvrhi::Viewport(float(width), float(height))));
 		for (const auto& instance : m_Instances)
 		{
+			if (!instance.Visible)
+				continue;
 			const auto& mesh = m_Meshes[instance.MeshIndex];
 			auto center = glm::vec3(instance.Transform * glm::vec4(mesh.BoundsCenter, 1));
 			float scaleBound = std::sqrt(glm::dot(glm::vec3(instance.Transform[0]), glm::vec3(instance.Transform[0])) +

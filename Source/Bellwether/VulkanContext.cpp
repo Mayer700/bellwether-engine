@@ -12,8 +12,10 @@
 #include <array>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -52,6 +54,25 @@ namespace Bellwether
 		SnowField InteractiveSnow;
 		bool HasInteractiveSnow = false;
 		bool SpaceWasDown = false;
+		std::unique_ptr<SnowSandbox> Sandbox;
+		uint64_t LastSandboxMutation = 0;
+		bool MouseLeftDown = false;
+		bool HasPrevMouseWorldXZ = false;
+		glm::vec2 PrevMouseWorldXZ{0.0f, 0.0f};
+		glm::vec2 PrevSpaceXZ{0.0f, 0.0f};
+		bool LaunchBoulderNext = false;
+		bool KeyFWasDown = false;
+		bool KeyGWasDown = false;
+		bool KeyEnterWasDown = false;
+		bool KeyTWasDown = false;
+		bool KeyRWasDown = false;
+		bool KeyHWasDown = false;
+		bool Key3WasDown = false;
+		bool Key4WasDown = false;
+		bool Key5WasDown = false;
+		bool Key6WasDown = false;
+		std::array<bool, 4> KeyFnWasDown{false, false, false, false};
+		float TitleUpdateAccumulator = 0.0f;
 
 		void message(nvrhi::MessageSeverity severity, const char* messageText) override
 		{
@@ -71,6 +92,7 @@ namespace Bellwether
 			{
 				Device.waitIdle();
 				Commands = {};
+				Sandbox.reset();
 				World.reset();
 				FrameEvents = {};
 				Framebuffers.clear();
@@ -441,6 +463,53 @@ namespace Bellwether
 			throw std::runtime_error("GPU readback probe did not match expected pixels");
 	}
 
+	namespace
+	{
+		void ResetInteractiveInputState(bool& hasInteractiveSnow, float& previewTime, bool& spaceWasDown,
+										bool& mouseLeftDown, bool& hasPrevMouseWorldXZ, float& titleAccum)
+		{
+			hasInteractiveSnow = false;
+			previewTime = 0.0f;
+			spaceWasDown = false;
+			mouseLeftDown = false;
+			hasPrevMouseWorldXZ = false;
+			titleAccum = 0.0f;
+		}
+
+		void SyncSandboxDynamicInstances(WorldRenderer& world, const SnowSandbox& sandbox)
+		{
+			for (const auto& inst : sandbox.GetDynamicInstances())
+				world.SetInstanceTransform(inst.PlacementIndex, inst.Transform, inst.Visible);
+		}
+
+		void UpdateSandboxWindowTitle(GLFWwindow* window, const SnowSandbox& sandbox, glm::vec2 probeXZ)
+		{
+			if (!window)
+				return;
+			const SnowSample sample = sandbox.SampleAt(probeXZ);
+			std::ostringstream title;
+			title << std::fixed << std::setprecision(2) << "Bellwether Snow Sandbox | [" << sandbox.GetScenarioName()
+				  << "] Depth:" << sample.EffectiveDepth << "m Ice:" << sample.Ice << " Moist:" << sample.Moisture << " "
+				  << std::setprecision(1) << sandbox.GetAmbientCelsius()
+				  << "C | F1-F4/T:Scenario LMB:Carve RMB/M:Melt F:Freeze G:Launch H:Help";
+			glfwSetWindowTitle(window, title.str().c_str());
+		}
+
+		void PrintSandboxControls(const SnowSandbox& sandbox, glm::vec2 probeXZ)
+		{
+			const SnowSample sample = sandbox.SampleAt(probeXZ);
+			std::cout << "\n=== Bellwether Real-Time Snow Sandbox ===\n"
+					  << "Scenario      : " << sandbox.GetScenarioName() << " (F1:Tracks F2:Melt F3:Blizzard F4:Sparkle, T:Next, R:Reset)\n"
+					  << "Probe (" << probeXZ.x << ", " << probeXZ.y << ") : Depth=" << sample.EffectiveDepth
+					  << "m Moisture=" << sample.Moisture << " Ice=" << sample.Ice
+					  << " Compression=" << sample.Compression << " Temp=" << sandbox.GetAmbientCelsius() << "C\n"
+					  << "Navigation    : WASD/Arrows pan camera, Q/E zoom\n"
+					  << "Snow Tools    : Left-Mouse drag/Space carve tracks | Right-Mouse/M melt snow | F cold-snap freeze\n"
+					  << "Weather & Sim : 1/2 snowfall intensity | 3/4 wind preset | 5/6 sparkle/SSS | G/Enter launch sled/boulder\n"
+					  << "=========================================\n";
+		}
+	} // namespace
+
 	void VulkanContext::LoadWorld(const std::filesystem::path& directory)
 	{
 		if (!m_Implementation->Renderer)
@@ -448,9 +517,11 @@ namespace Bellwether
 		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
 		candidate->Load(directory);
 		std::cout << "WORLD_INSTANCES " << candidate->GetDrawCount() << '\n';
+		m_Implementation->Sandbox.reset();
 		m_Implementation->World = std::move(candidate);
-		m_Implementation->HasInteractiveSnow = false;
-		m_Implementation->PreviewTime = 0.0f;
+		ResetInteractiveInputState(m_Implementation->HasInteractiveSnow, m_Implementation->PreviewTime,
+								   m_Implementation->SpaceWasDown, m_Implementation->MouseLeftDown,
+								   m_Implementation->HasPrevMouseWorldXZ, m_Implementation->TitleUpdateAccumulator);
 	}
 
 	void VulkanContext::LoadModel(const std::filesystem::path& path)
@@ -460,9 +531,11 @@ namespace Bellwether
 		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
 		candidate->LoadModel(path);
 		std::cout << "MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
+		m_Implementation->Sandbox.reset();
 		m_Implementation->World = std::move(candidate);
-		m_Implementation->HasInteractiveSnow = false;
-		m_Implementation->PreviewTime = 0.0f;
+		ResetInteractiveInputState(m_Implementation->HasInteractiveSnow, m_Implementation->PreviewTime,
+								   m_Implementation->SpaceWasDown, m_Implementation->MouseLeftDown,
+								   m_Implementation->HasPrevMouseWorldXZ, m_Implementation->TitleUpdateAccumulator);
 	}
 
 	void VulkanContext::LoadScene(const std::filesystem::path& path)
@@ -474,9 +547,30 @@ namespace Bellwether
 		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
 		candidate->LoadScene(scene, std::filesystem::absolute(path).parent_path());
 		std::cout << "SCENE_MODEL_INSTANCES " << candidate->GetDrawCount() << '\n';
+		m_Implementation->Sandbox.reset();
 		m_Implementation->World = std::move(candidate);
-		m_Implementation->HasInteractiveSnow = false;
-		m_Implementation->PreviewTime = 0.0f;
+		ResetInteractiveInputState(m_Implementation->HasInteractiveSnow, m_Implementation->PreviewTime,
+								   m_Implementation->SpaceWasDown, m_Implementation->MouseLeftDown,
+								   m_Implementation->HasPrevMouseWorldXZ, m_Implementation->TitleUpdateAccumulator);
+	}
+
+	void VulkanContext::LoadSnowSandbox(SnowTestScenario scenario)
+	{
+		if (!m_Implementation->Renderer)
+			throw std::logic_error("Cannot load snow sandbox after context shutdown");
+		auto sandbox = std::make_unique<SnowSandbox>(scenario);
+		auto candidate = std::make_unique<WorldRenderer>(m_Implementation->Renderer);
+		candidate->LoadAsset(sandbox->GetRenderAsset(), sandbox->GetRenderSettings(), &sandbox->GetSnowField());
+		SyncSandboxDynamicInstances(*candidate, *sandbox);
+		std::cout << "SNOW_SANDBOX_LOADED scenario=" << sandbox->GetScenarioName()
+				  << " instances=" << candidate->GetDrawCount() << '\n';
+		m_Implementation->Sandbox = std::move(sandbox);
+		m_Implementation->World = std::move(candidate);
+		ResetInteractiveInputState(m_Implementation->HasInteractiveSnow, m_Implementation->PreviewTime,
+								   m_Implementation->SpaceWasDown, m_Implementation->MouseLeftDown,
+								   m_Implementation->HasPrevMouseWorldXZ, m_Implementation->TitleUpdateAccumulator);
+		m_Implementation->LastSandboxMutation = m_Implementation->Sandbox->GetSnowMutationCounter();
+		UpdateSandboxWindowTitle(m_Implementation->Window, *m_Implementation->Sandbox, {0.0f, 4.0f});
 	}
 
 	void VulkanContext::CaptureWorld(const std::filesystem::path& output)
@@ -569,6 +663,8 @@ namespace Bellwether
 	{
 		if (!m_Implementation->World)
 			throw std::logic_error("Load a world before applying render settings");
+		if (m_Implementation->Sandbox)
+			m_Implementation->Sandbox->SetRenderSettings(settings);
 		m_Implementation->World->SetSettings(settings);
 	}
 
@@ -606,6 +702,13 @@ namespace Bellwether
 		impl.World->SetTimeSeconds(impl.PreviewTime);
 
 		auto keyDown = [&](int key) { return glfwGetKey(impl.Window, key) == GLFW_PRESS; };
+		auto edgePressed = [&](int key, bool& prev)
+		{
+			const bool down = keyDown(key);
+			const bool triggered = down && !prev;
+			prev = down;
+			return triggered;
+		};
 		RenderSettings settings = impl.World->GetSettings();
 		bool settingsChanged = false;
 		const float panSpeed = std::max(4.0f, settings.CameraSize * 0.75f);
@@ -653,7 +756,190 @@ namespace Bellwether
 		{
 			settings.Validate();
 			impl.World->SetSettings(settings);
+			if (impl.Sandbox)
+				impl.Sandbox->SetRenderSettings(settings);
 		}
+
+		if (impl.Sandbox)
+		{
+			auto& sandbox = *impl.Sandbox;
+			std::optional<SnowTestScenario> nextScenario;
+			if (edgePressed(GLFW_KEY_F1, impl.KeyFnWasDown[0]))
+				nextScenario = SnowTestScenario::TracksAndPhysics;
+			if (edgePressed(GLFW_KEY_F2, impl.KeyFnWasDown[1]))
+				nextScenario = SnowTestScenario::ThermalMeltAndIce;
+			if (edgePressed(GLFW_KEY_F3, impl.KeyFnWasDown[2]))
+				nextScenario = SnowTestScenario::BlizzardDrift;
+			if (edgePressed(GLFW_KEY_F4, impl.KeyFnWasDown[3]))
+				nextScenario = SnowTestScenario::SunnySparkle;
+			if (edgePressed(GLFW_KEY_T, impl.KeyTWasDown))
+			{
+				const int idx = (static_cast<int>(sandbox.GetScenario()) + 1) % 4;
+				nextScenario = static_cast<SnowTestScenario>(idx);
+			}
+			if (edgePressed(GLFW_KEY_R, impl.KeyRWasDown))
+				nextScenario = sandbox.GetScenario();
+
+			if (nextScenario.has_value())
+			{
+				sandbox.ResetScenario(*nextScenario);
+				impl.World->LoadAsset(sandbox.GetRenderAsset(), sandbox.GetRenderSettings(), &sandbox.GetSnowField());
+				SyncSandboxDynamicInstances(*impl.World, sandbox);
+				impl.LastSandboxMutation = sandbox.GetSnowMutationCounter();
+				impl.PreviewTime = sandbox.GetElapsedSeconds();
+				impl.World->SetTimeSeconds(impl.PreviewTime);
+				impl.HasPrevMouseWorldXZ = false;
+				const glm::vec2 centerXZ(sandbox.GetRenderSettings().CameraTarget.x,
+										 sandbox.GetRenderSettings().CameraTarget.z);
+				sandbox.SetProbePosition(centerXZ);
+				UpdateSandboxWindowTitle(impl.Window, sandbox, centerXZ);
+				std::cout << "SNOW_SANDBOX_SCENARIO " << sandbox.GetScenarioName() << '\n';
+				return;
+			}
+
+			if (edgePressed(GLFW_KEY_3, impl.Key3WasDown))
+			{
+				sandbox.CycleWindPreset(-1);
+				impl.World->SetSettings(sandbox.GetRenderSettings());
+			}
+			if (edgePressed(GLFW_KEY_4, impl.Key4WasDown))
+			{
+				sandbox.CycleWindPreset(1);
+				impl.World->SetSettings(sandbox.GetRenderSettings());
+			}
+			if (edgePressed(GLFW_KEY_5, impl.Key5WasDown))
+			{
+				sandbox.CycleSparklePreset(-1);
+				impl.World->SetSettings(sandbox.GetRenderSettings());
+			}
+			if (edgePressed(GLFW_KEY_6, impl.Key6WasDown))
+			{
+				sandbox.CycleSparklePreset(1);
+				impl.World->SetSettings(sandbox.GetRenderSettings());
+			}
+
+			const glm::vec2 camXZ(settings.CameraTarget.x, settings.CameraTarget.z);
+			glm::vec2 activeProbeXZ = camXZ;
+			const bool focused = glfwGetWindowAttrib(impl.Window, GLFW_FOCUSED) != 0;
+
+			if (focused)
+			{
+				int winW = 0, winH = 0;
+				glfwGetWindowSize(impl.Window, &winW, &winH);
+				double cursorX = 0.0, cursorY = 0.0;
+				glfwGetCursorPos(impl.Window, &cursorX, &cursorY);
+				if (winW > 0 && winH > 0 && cursorX >= 0.0 && cursorX < static_cast<double>(winW) &&
+					cursorY >= 0.0 && cursorY < static_cast<double>(winH))
+				{
+					const RenderSettings activeSettings = impl.World->GetSettings();
+					const float aspect = static_cast<float>(winW) / static_cast<float>(winH);
+					const float ndcX = static_cast<float>(cursorX / static_cast<double>(winW)) * 2.0f - 1.0f;
+					const float ndcY = 1.0f - static_cast<float>(cursorY / static_cast<double>(winH)) * 2.0f;
+					const glm::mat4 invVP = glm::inverse(activeSettings.GetViewProjection(aspect));
+					const glm::vec4 nearH = invVP * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+					const glm::vec4 farH = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+					if (std::abs(nearH.w) > 1e-6f && std::abs(farH.w) > 1e-6f)
+					{
+						const glm::vec3 nearW = glm::vec3(nearH) / nearH.w;
+						const glm::vec3 farW = glm::vec3(farH) / farH.w;
+						if (const auto hit = sandbox.RaycastGround(nearW, farW - nearW))
+						{
+							activeProbeXZ = {hit->x, hit->z};
+							const bool leftDown = glfwGetMouseButton(impl.Window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+							const bool rightDown =
+								glfwGetMouseButton(impl.Window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+							if (leftDown)
+							{
+								if (impl.MouseLeftDown && impl.HasPrevMouseWorldXZ)
+									sandbox.StampStroke(impl.PrevMouseWorldXZ, activeProbeXZ, 1.45f, 0.32f);
+								else
+									sandbox.StampAt(activeProbeXZ, 1.65f, 0.34f);
+								impl.MouseLeftDown = true;
+								impl.PrevMouseWorldXZ = activeProbeXZ;
+								impl.HasPrevMouseWorldXZ = true;
+							}
+							else
+							{
+								impl.MouseLeftDown = false;
+								impl.HasPrevMouseWorldXZ = false;
+							}
+							if (rightDown)
+								sandbox.MeltAt(activeProbeXZ, 2.8f, 1.6f, dt);
+						}
+						else
+						{
+							impl.MouseLeftDown = false;
+							impl.HasPrevMouseWorldXZ = false;
+						}
+					}
+				}
+				else
+				{
+					impl.MouseLeftDown = false;
+					impl.HasPrevMouseWorldXZ = false;
+				}
+			}
+			else
+			{
+				impl.MouseLeftDown = false;
+				impl.HasPrevMouseWorldXZ = false;
+			}
+
+			sandbox.SetProbePosition(activeProbeXZ);
+			sandbox.SetProbeVisible(true);
+
+			const bool spaceDown = keyDown(GLFW_KEY_SPACE);
+			if (spaceDown && !impl.SpaceWasDown)
+			{
+				sandbox.StampAt(activeProbeXZ, 1.75f, 0.35f);
+				impl.PrevSpaceXZ = activeProbeXZ;
+			}
+			else if (spaceDown && impl.SpaceWasDown && glm::length(activeProbeXZ - impl.PrevSpaceXZ) > 0.1f)
+			{
+				sandbox.StampStroke(impl.PrevSpaceXZ, activeProbeXZ, 1.45f, 0.32f);
+				impl.PrevSpaceXZ = activeProbeXZ;
+			}
+			impl.SpaceWasDown = spaceDown;
+
+			if (keyDown(GLFW_KEY_M))
+				sandbox.MeltAt(activeProbeXZ, 2.8f, 1.6f, dt);
+
+			if (edgePressed(GLFW_KEY_F, impl.KeyFWasDown))
+				sandbox.TriggerColdSnapFreeze(3.0f);
+
+			const bool launchG = edgePressed(GLFW_KEY_G, impl.KeyGWasDown);
+			const bool launchEnter = edgePressed(GLFW_KEY_ENTER, impl.KeyEnterWasDown);
+			if (launchG || launchEnter)
+			{
+				const bool boulder = impl.LaunchBoulderNext;
+				impl.LaunchBoulderNext = !impl.LaunchBoulderNext;
+				sandbox.LaunchSled({activeProbeXZ.x - 8.5f, activeProbeXZ.y}, {11.5f, 0.0f}, boulder);
+			}
+
+			if (edgePressed(GLFW_KEY_H, impl.KeyHWasDown))
+				PrintSandboxControls(sandbox, activeProbeXZ);
+
+			sandbox.Step(dt);
+			impl.PreviewTime = sandbox.GetElapsedSeconds();
+			impl.World->SetTimeSeconds(impl.PreviewTime);
+
+			const uint64_t mutation = sandbox.GetSnowMutationCounter();
+			if (mutation != impl.LastSandboxMutation)
+			{
+				impl.World->UpdateSnowField(sandbox.GetSnowField());
+				impl.LastSandboxMutation = mutation;
+			}
+			SyncSandboxDynamicInstances(*impl.World, sandbox);
+
+			impl.TitleUpdateAccumulator += dt;
+			if (impl.TitleUpdateAccumulator >= 0.25f)
+			{
+				impl.TitleUpdateAccumulator = 0.0f;
+				UpdateSandboxWindowTitle(impl.Window, sandbox, activeProbeXZ);
+			}
+			return;
+		}
+
 		const bool spaceDown = keyDown(GLFW_KEY_SPACE);
 		if (!impl.HasInteractiveSnow && impl.World->HasSnowField())
 		{
@@ -705,6 +991,13 @@ namespace Bellwether
 			throw std::logic_error("Load the renderer fixture before snow verification");
 		Bellwether::VerifySnowRenderer(m_Implementation->Renderer, *m_Implementation->World, outputDirectory,
 									   fixtureDirectory);
+	}
+
+	void VulkanContext::VerifySnowSandbox(const std::filesystem::path& outputDirectory)
+	{
+		if (!m_Implementation->World)
+			throw std::logic_error("Load the snow sandbox before verification");
+		Bellwether::VerifySnowSandbox(m_Implementation->Renderer, *m_Implementation->World, outputDirectory);
 	}
 
 	void VulkanContext::VerifyModelRenderer(const std::filesystem::path& outputDirectory,

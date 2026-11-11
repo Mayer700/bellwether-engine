@@ -346,4 +346,65 @@ namespace Bellwether
 		m_MaterialSamplerCount = materials.SamplerCount;
 	}
 
+	namespace
+	{
+		void ValidateAffineTransform(const glm::mat4& transform, const char* label)
+		{
+			for (int c = 0; c < 4; ++c)
+				for (int r = 0; r < 4; ++r)
+					if (!std::isfinite(transform[c][r]))
+						throw std::invalid_argument(std::string(label) + " transform contains non-finite values");
+			if (std::abs(transform[0][3]) > 1e-4f || std::abs(transform[1][3]) > 1e-4f ||
+				std::abs(transform[2][3]) > 1e-4f || std::abs(transform[3][3] - 1.0f) > 1e-4f)
+				throw std::invalid_argument(std::string(label) + " transform must be an affine matrix");
+			if (std::abs(glm::determinant(glm::mat3(transform))) < 1e-9f)
+				throw std::invalid_argument(std::string(label) + " transform must be non-singular");
+		}
+	} // namespace
+
+	void WorldRenderer::LoadAsset(const ModelAsset& asset, const RenderSettings& settings, const SnowField* snow)
+	{
+		if (asset.Primitives.empty() || asset.Materials.empty() || asset.Placements.empty())
+			throw std::invalid_argument("Procedural asset requires primitives, materials, and placements");
+		for (size_t i = 0; i < asset.Primitives.size(); ++i)
+		{
+			const auto& prim = asset.Primitives[i];
+			if (prim.Material >= asset.Materials.size())
+				throw std::invalid_argument("Primitive material index out of range");
+			if (prim.Vertices.empty() || prim.Indices.empty())
+				throw std::invalid_argument("Primitive geometry cannot be empty");
+		}
+		for (const auto& placement : asset.Placements)
+		{
+			if (placement.Primitive >= asset.Primitives.size())
+				throw std::invalid_argument("Placement primitive index out of range");
+			ValidateAffineTransform(placement.Transform, "Placement");
+		}
+
+		const RenderSettings previousSettings = GetSettings();
+		SetSettings(settings);
+		try
+		{
+			UploadModel(asset);
+			if (snow)
+				UpdateSnowField(*snow);
+			else
+				ClearSnowField();
+		}
+		catch (...)
+		{
+			SetSettings(previousSettings);
+			throw;
+		}
+	}
+
+	void WorldRenderer::SetInstanceTransform(size_t instanceIndex, const glm::mat4& transform, bool visible)
+	{
+		if (instanceIndex >= m_Instances.size())
+			throw std::out_of_range("Instance index out of range");
+		ValidateAffineTransform(transform, "Instance");
+		m_Instances[instanceIndex].Transform = transform;
+		m_Instances[instanceIndex].Visible = visible;
+	}
+
 } // namespace Bellwether

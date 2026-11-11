@@ -1,4 +1,5 @@
 #include "RendererVerification.h"
+#include "SnowSandbox.h"
 #include <glm/gtc/packing.hpp>
 #include <algorithm>
 #include <cmath>
@@ -822,6 +823,231 @@ namespace Bellwether
 		if (failed)
 			throw std::runtime_error("Snow renderer verification failed " + std::to_string(failed) + " checks");
 		std::cout << "BELLWETHER_SNOW " << report["Checks"].size() << " passed 0 failed\n";
+		return report;
+	}
+
+	Json VerifySnowSandbox(nvrhi::IDevice* device, WorldRenderer& world, const std::filesystem::path& outputDirectory)
+	{
+		std::filesystem::create_directories(outputDirectory);
+		constexpr uint32_t width = 640, height = 400;
+		Json report = Json::object();
+		report["Checks"] = Json::array();
+		unsigned failed = 0;
+
+		auto check = [&](bool passed, const std::string& label)
+		{
+			report["Checks"].push_back({{"Name", label}, {"Passed", passed}});
+			if (!passed)
+			{
+				++failed;
+				std::cerr << "SNOW_SANDBOX_FAIL " << label << '\n';
+			}
+		};
+
+		auto averageLuma = [](const Capture& capture) -> double
+		{
+			double total = 0.0;
+			const size_t pixels = capture.Pixels.size() / 4;
+			for (size_t i = 0; i < pixels; ++i)
+			{
+				const size_t o = i * 4;
+				total += (0.2126 * capture.Pixels[o] + 0.7152 * capture.Pixels[o + 1] + 0.0722 * capture.Pixels[o + 2]) /
+						 255.0;
+			}
+			return pixels ? total / static_cast<double>(pixels) : 0.0;
+		};
+
+		auto changedPixelCount = [](const Capture& a, const Capture& b) -> size_t
+		{
+			if (a.Pixels.size() != b.Pixels.size())
+				return a.Pixels.size();
+			size_t changed = 0;
+			const size_t pixels = a.Pixels.size() / 4;
+			for (size_t i = 0; i < pixels; ++i)
+			{
+				const size_t o = i * 4;
+				if (a.Pixels[o] != b.Pixels[o] || a.Pixels[o + 1] != b.Pixels[o + 1] || a.Pixels[o + 2] != b.Pixels[o + 2])
+					++changed;
+			}
+			return changed;
+		};
+
+		auto syncWorld = [&](const SnowSandbox& sandbox)
+		{
+			world.UpdateSnowField(sandbox.GetSnowField());
+			for (const auto& inst : sandbox.GetDynamicInstances())
+				world.SetInstanceTransform(inst.PlacementIndex, inst.Transform, inst.Visible);
+			world.SetTimeSeconds(sandbox.GetElapsedSeconds());
+		};
+
+		// 1. TracksAndPhysics: live snow sled comparison + carving + user boulder launch
+		SnowSandbox sandbox(SnowTestScenario::TracksAndPhysics);
+		world.LoadAsset(sandbox.GetRenderAsset(), sandbox.GetRenderSettings(), &sandbox.GetSnowField());
+		syncWorld(sandbox);
+		const Capture initialTracks = RenderCapture(device, world, width, height);
+		check(initialTracks.Peak > 0.25f && std::isfinite(initialTracks.Peak),
+			  "TracksAndPhysics initial frame is lit with valid HDR peak");
+
+		for (int step = 0; step < 90; ++step)
+			sandbox.Step(1.0f / 60.0f);
+
+		const EntityID powderId = sandbox.GetPrimaryPowderSled();
+		const EntityID iceId = sandbox.GetPrimaryIceSled();
+		const bool sledsExist = sandbox.GetScene().Exists(powderId) && sandbox.GetScene().Exists(iceId);
+		check(sledsExist, "TracksAndPhysics twin sled entities remain valid after simulation");
+		if (sledsExist)
+		{
+			const float powderX = sandbox.GetScene().GetEntity(powderId).Transform.Translation.x;
+			const float iceX = sandbox.GetScene().GetEntity(iceId).Transform.Translation.x;
+			check(iceX > powderX + 0.15f, "Ice-lane sled travels farther than deep-powder sled via snow coupling");
+		}
+
+		check(sandbox.StampStroke({-9.0f, 10.0f}, {9.0f, 10.0f}, 1.75f, 0.35f),
+			  "TracksAndPhysics continuous stroke stamps snow trench");
+		const EntityID launchedBoulder = sandbox.LaunchSled({-8.0f, 6.0f}, {9.5f, 0.5f}, true);
+		check(launchedBoulder != 0 && sandbox.GetScene().Exists(launchedBoulder),
+			  "LaunchSled spawns active snow boulder in sandbox");
+		for (int step = 0; step < 30; ++step)
+			sandbox.Step(1.0f / 60.0f);
+
+		syncWorld(sandbox);
+		const Capture movedTracks = RenderCapture(device, world, width, height);
+		WriteCapture(outputDirectory / "SnowSandboxTracks.ppm", movedTracks, width, height);
+		const size_t trackPixelDelta = changedPixelCount(initialTracks, movedTracks);
+		check(trackPixelDelta > 500, "TracksAndPhysics sled motion and carving visually change rendered frame");
+
+		// Negative checks on SnowSandbox and WorldRenderer instance APIs
+		bool rejectedNegativeStep = false;
+		try
+		{
+			sandbox.Step(-0.1f);
+		}
+		catch (const std::invalid_argument&)
+		{
+			rejectedNegativeStep = true;
+		}
+		check(rejectedNegativeStep, "SnowSandbox::Step rejects negative deltaSeconds");
+
+		bool rejectedNanLaunch = false;
+		try
+		{
+			sandbox.LaunchSled({std::numeric_limits<float>::quiet_NaN(), 0.0f}, {1.0f, 0.0f});
+		}
+		catch (const std::invalid_argument&)
+		{
+			rejectedNanLaunch = true;
+		}
+		check(rejectedNanLaunch, "SnowSandbox::LaunchSled rejects non-finite coordinates");
+
+		bool rejectedBadInstanceIndex = false;
+		try
+		{
+			world.SetInstanceTransform(999999, glm::mat4(1.0f), true);
+		}
+		catch (const std::out_of_range&)
+		{
+			rejectedBadInstanceIndex = true;
+		}
+		check(rejectedBadInstanceIndex, "WorldRenderer::SetInstanceTransform rejects out-of-range index");
+
+		bool rejectedSingularTransform = false;
+		try
+		{
+			world.SetInstanceTransform(0, glm::mat4(0.0f), true);
+		}
+		catch (const std::invalid_argument&)
+		{
+			rejectedSingularTransform = true;
+		}
+		check(rejectedSingularTransform, "WorldRenderer::SetInstanceTransform rejects singular transform");
+
+		bool rejectedEmptyAsset = false;
+		try
+		{
+			world.LoadAsset(ModelAsset{}, sandbox.GetRenderSettings(), nullptr);
+		}
+		catch (const std::invalid_argument&)
+		{
+			rejectedEmptyAsset = true;
+		}
+		check(rejectedEmptyAsset, "WorldRenderer::LoadAsset rejects empty procedural asset");
+
+		// 2. ThermalMeltAndIce: heat melting followed by sub-zero cold snap refreezing
+		sandbox.ResetScenario(SnowTestScenario::ThermalMeltAndIce);
+		world.LoadAsset(sandbox.GetRenderAsset(), sandbox.GetRenderSettings(), &sandbox.GetSnowField());
+		syncWorld(sandbox);
+		const Capture beforeMelt = RenderCapture(device, world, width, height);
+
+		const glm::vec2 meltTarget(2.5f, 10.5f);
+		const float depthBeforeMelt = sandbox.SampleAt(meltTarget).EffectiveDepth;
+		check(sandbox.MeltAt(meltTarget, 3.6f, 1.4f, 0.25f), "MeltAt reduces snow around thermal point");
+		check(sandbox.SampleAt(meltTarget).EffectiveDepth < depthBeforeMelt, "MeltAt lowers sampled snow depth");
+		syncWorld(sandbox);
+		const Capture afterMelt = RenderCapture(device, world, width, height);
+		check(changedPixelCount(beforeMelt, afterMelt) > 150,
+			  "ThermalMeltAndIce localized melt visibly alters snow cover");
+
+		sandbox.TriggerColdSnapFreeze(3.0f);
+		for (int step = 0; step < 120; ++step)
+			sandbox.Step(1.0f / 60.0f);
+		check(sandbox.GetAmbientCelsius() < -15.0f, "TriggerColdSnapFreeze drops ambient temperature below -15C");
+		check(sandbox.SampleAt(meltTarget).Ice > 0.20f, "Cold snap refreezes wet zone into slick surface ice");
+		syncWorld(sandbox);
+		const Capture frozenIce = RenderCapture(device, world, width, height);
+		WriteCapture(outputDirectory / "SnowSandboxMelt.ppm", frozenIce, width, height);
+		check(changedPixelCount(afterMelt, frozenIce) > 150,
+			  "Cold snap freeze produces distinct icy shading in rendered frame");
+
+		// 3. BlizzardDrift: falling particle advection and track healing
+		sandbox.ResetScenario(SnowTestScenario::BlizzardDrift);
+		world.LoadAsset(sandbox.GetRenderAsset(), sandbox.GetRenderSettings(), &sandbox.GetSnowField());
+		syncWorld(sandbox);
+		world.SetTimeSeconds(0.0f);
+		const Capture blizzardT0 = RenderCapture(device, world, width, height);
+		world.SetTimeSeconds(1.25f);
+		const Capture blizzardT1 = RenderCapture(device, world, width, height);
+		check(changedPixelCount(blizzardT0, blizzardT1) > 100,
+			  "BlizzardDrift advects GPU snowfall particles across time");
+
+		sandbox.StampAt({0.0f, 4.0f}, 2.0f, 0.42f);
+		const float carvedDepth = sandbox.SampleAt({0.0f, 4.0f}).EffectiveDepth;
+		for (int step = 0; step < 90; ++step)
+			sandbox.Step(1.0f / 60.0f);
+		check(sandbox.SampleAt({0.0f, 4.0f}).EffectiveDepth > carvedDepth + 0.01f,
+			  "BlizzardDrift snowfall heals carved tracks over time");
+		syncWorld(sandbox);
+		const Capture blizzardDrifted = RenderCapture(device, world, width, height);
+		WriteCapture(outputDirectory / "SnowSandboxBlizzard.ppm", blizzardDrifted, width, height);
+
+		// 4. SunnySparkle: bright winter lighting, HDR sparkle peaks, and raycast picking
+		sandbox.ResetScenario(SnowTestScenario::SunnySparkle);
+		world.LoadAsset(sandbox.GetRenderAsset(), sandbox.GetRenderSettings(), &sandbox.GetSnowField());
+		syncWorld(sandbox);
+		world.SetTimeSeconds(0.25f);
+		const Capture sparkle = RenderCapture(device, world, width, height);
+		WriteCapture(outputDirectory / "SnowSandboxSparkle.ppm", sparkle, width, height);
+		check(sparkle.Peak > 2.5f && std::isfinite(sparkle.Peak),
+			  "SunnySparkle yields high dynamic range sunlight/sparkle peak > 2.5");
+		check(averageLuma(sparkle) > averageLuma(blizzardT0),
+			  "SunnySparkle renders noticeably brighter winter scene than BlizzardDrift");
+		check(sandbox.RaycastGround({0.0f, 120.0f, 4.0f}, {0.0f, -240.0f, 0.0f}).has_value(),
+			  "RaycastGround hits procedural alpine heightfield");
+		check(!sandbox.RaycastGround({500.0f, 120.0f, 500.0f}, {0.0f, -240.0f, 0.0f}).has_value(),
+			  "RaycastGround misses outside terrain bounds");
+
+		report["TracksMovedPixels"] = trackPixelDelta;
+		report["BlizzardLuma"] = averageLuma(blizzardT0);
+		report["SparkleLuma"] = averageLuma(sparkle);
+		report["SparklePeakHDR"] = sparkle.Peak;
+
+		std::ofstream jsonOut(outputDirectory / "SnowSandbox.json");
+		jsonOut << report.dump(2) << '\n';
+		if (!jsonOut)
+			throw std::runtime_error("Cannot write SnowSandbox verification report");
+
+		if (failed)
+			throw std::runtime_error("Snow sandbox verification failed " + std::to_string(failed) + " checks");
+		std::cout << "BELLWETHER_SNOW_SANDBOX " << report["Checks"].size() << " passed 0 failed\n";
 		return report;
 	}
 } // namespace Bellwether
