@@ -1,4 +1,5 @@
 #pragma once
+#include "PhysicsWorld.h"
 #include "RenderSettings.h"
 #include "SnowField.h"
 
@@ -42,6 +43,26 @@ namespace Bellwether
 		glm::mat4 GetMatrix() const;
 	};
 
+	struct PhysicsComponent
+	{
+		bool Enabled = false;
+		PhysicsShape Shape = PhysicsShape::Box;
+		PhysicsMotion Motion = PhysicsMotion::Static;
+		glm::vec3 HalfExtents{0.5f};
+		float Radius = 0.5f;
+		float HalfHeight = 0.5f;
+		float Mass = 1.0f;
+		float Friction = 0.5f;
+		float Restitution = 0.0f;
+		bool SnowTracking = true;
+		float SnowDrag = 2.5f;
+
+		void Validate() const;
+		Json Serialize() const;
+		static PhysicsComponent Deserialize(const Json& value);
+		bool operator==(const PhysicsComponent&) const = default;
+	};
+
 	struct Entity
 	{
 		EntityID ID = 0;
@@ -49,6 +70,7 @@ namespace Bellwether
 		TransformComponent Transform;
 		std::string Script;
 		std::string ModelAsset;
+		PhysicsComponent Physics;
 	};
 
 	class Scene

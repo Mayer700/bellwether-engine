@@ -269,6 +269,39 @@ int main(int argumentCount, char** arguments)
 		featureScene.Load(root / "Scenes/FeatureTest.bwscene");
 		Check(featureScene.GetEntity(2).ModelAsset == "ModelFixtures/Materials.glb",
 			  "feature scene contains editable model component");
+		Check(featureScene.GetEntity(3).Physics.Enabled &&
+				  featureScene.GetEntity(3).Physics.Shape == PhysicsShape::Capsule &&
+				  featureScene.GetEntity(3).Physics.Motion == PhysicsMotion::Dynamic,
+			  "feature scene contains editable physics component");
+		auto physCheckpoint = featureScene.Serialize();
+		featureScene.ApplyCommands(Json::array(
+			{Json{{"Operation", "SetPhysics"},
+				  {"ID", 2},
+				  {"Physics", {{"Enabled", true}, {"Shape", "Sphere"}, {"Radius", 0.75}, {"Mass", 12.0}}}},
+			 Json{{"Operation", "SetTransform"},
+				  {"ID", 2},
+				  {"Transform", {{"Translation", {4, 5, 6}}, {"Rotation", {0, 0, 0}}, {"Scale", {1, 1, 1}}}}}}));
+		Check(featureScene.GetEntity(2).Physics.Enabled &&
+				  featureScene.GetEntity(2).Physics.Shape == PhysicsShape::Sphere &&
+				  featureScene.GetEntity(2).Transform.Translation.x == 4.0f,
+			  "SetPhysics and SetTransform preserve each other");
+		Rejects(
+			[&]
+			{
+				featureScene.ApplyCommands(
+					Json::array({{{"Operation", "SetPhysics"}, {"ID", 2}, {"Physics", {{"Shape", "TriangleSoup"}}}},
+								 {{"Operation", "SetPhysics"}, {"ID", 2}, {"Physics", {{"Mass", 50.0}}}}}));
+			},
+			"unsupported physics shape rejects explicitly");
+		Rejects(
+			[&]
+			{
+				featureScene.ApplyCommands(
+					Json::array({{{"Operation", "SetPhysics"}, {"ID", 2}, {"Physics", {{"Mass", -10.0}}}}}));
+			},
+			"negative physics mass rejected");
+		featureScene.Deserialize(physCheckpoint);
+		Check(featureScene.Serialize() == physCheckpoint, "physics scene roundtrip restores cleanly");
 		std::ifstream scriptFile(root / "Scenes/FeatureTest.lua");
 		std::string script((std::istreambuf_iterator<char>(scriptFile)), {});
 		std::string error;

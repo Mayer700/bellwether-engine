@@ -286,6 +286,112 @@ namespace Bellwether
 		return result;
 	}
 
+	void PhysicsComponent::Validate() const
+	{
+		if (Shape != PhysicsShape::Box && Shape != PhysicsShape::Sphere && Shape != PhysicsShape::Capsule)
+			throw std::invalid_argument("Unsupported entity physics shape");
+		if (Motion != PhysicsMotion::Static && Motion != PhysicsMotion::Dynamic)
+			throw std::invalid_argument("Unsupported entity physics motion");
+		if (!std::isfinite(HalfExtents.x) || !std::isfinite(HalfExtents.y) || !std::isfinite(HalfExtents.z) ||
+			glm::any(glm::lessThan(HalfExtents, glm::vec3(0.01f))) ||
+			glm::any(glm::greaterThan(HalfExtents, glm::vec3(10000.0f))))
+			throw std::invalid_argument("Physics component HalfExtents must be in [0.01, 10000]");
+		if (!std::isfinite(Radius) || Radius < 0.01f || Radius > 10000.0f)
+			throw std::invalid_argument("Physics component Radius must be in [0.01, 10000]");
+		if (!std::isfinite(HalfHeight) || HalfHeight < 0.01f || HalfHeight > 10000.0f)
+			throw std::invalid_argument("Physics component HalfHeight must be in [0.01, 10000]");
+		if (!std::isfinite(Mass) || Mass < 0.001f || Mass > 1000000.0f)
+			throw std::invalid_argument("Physics component Mass must be in [0.001, 1000000]");
+		if (!std::isfinite(Friction) || Friction < 0.0f || Friction > 1.0f)
+			throw std::invalid_argument("Physics component Friction must be in [0, 1]");
+		if (!std::isfinite(Restitution) || Restitution < 0.0f || Restitution > 1.0f)
+			throw std::invalid_argument("Physics component Restitution must be in [0, 1]");
+		if (!std::isfinite(SnowDrag) || SnowDrag < 0.0f || SnowDrag > 100.0f)
+			throw std::invalid_argument("Physics component SnowDrag must be in [0, 100]");
+	}
+
+	Json PhysicsComponent::Serialize() const
+	{
+		Validate();
+		const char* shapeName = Shape == PhysicsShape::Box		 ? "Box"
+								: Shape == PhysicsShape::Capsule ? "Capsule"
+																 : "Sphere";
+		const char* motionName = Motion == PhysicsMotion::Static ? "Static" : "Dynamic";
+		return {{"Enabled", Enabled},
+				{"Shape", shapeName},
+				{"Motion", motionName},
+				{"HalfExtents", WriteVector(HalfExtents)},
+				{"Radius", Radius},
+				{"HalfHeight", HalfHeight},
+				{"Mass", Mass},
+				{"Friction", Friction},
+				{"Restitution", Restitution},
+				{"SnowTracking", SnowTracking},
+				{"SnowDrag", SnowDrag}};
+	}
+
+	PhysicsComponent PhysicsComponent::Deserialize(const Json& value)
+	{
+		ValidateFields(value, {"Enabled", "Shape", "Motion", "HalfExtents", "Radius", "HalfHeight", "Mass", "Friction",
+							   "Restitution", "SnowTracking", "SnowDrag"});
+		PhysicsComponent component;
+		if (value.contains("Enabled"))
+		{
+			if (!value["Enabled"].is_boolean())
+				throw std::invalid_argument("Physics Enabled must be boolean");
+			component.Enabled = value["Enabled"].get<bool>();
+		}
+		if (value.contains("Shape"))
+		{
+			if (!value["Shape"].is_string())
+				throw std::invalid_argument("Physics Shape must be a string");
+			auto shape = value["Shape"].get<std::string>();
+			if (shape == "Box")
+				component.Shape = PhysicsShape::Box;
+			else if (shape == "Sphere")
+				component.Shape = PhysicsShape::Sphere;
+			else if (shape == "Capsule")
+				component.Shape = PhysicsShape::Capsule;
+			else
+				throw std::invalid_argument("Unsupported Physics Shape: " + shape);
+		}
+		if (value.contains("Motion"))
+		{
+			if (!value["Motion"].is_string())
+				throw std::invalid_argument("Physics Motion must be a string");
+			auto motion = value["Motion"].get<std::string>();
+			if (motion == "Static")
+				component.Motion = PhysicsMotion::Static;
+			else if (motion == "Dynamic")
+				component.Motion = PhysicsMotion::Dynamic;
+			else
+				throw std::invalid_argument("Unsupported Physics Motion: " + motion);
+		}
+		if (value.contains("HalfExtents"))
+			component.HalfExtents = ReadVector(value["HalfExtents"]);
+		for (auto [name, destination] : {std::pair{"Radius", &component.Radius},
+										 {"HalfHeight", &component.HalfHeight},
+										 {"Mass", &component.Mass},
+										 {"Friction", &component.Friction},
+										 {"Restitution", &component.Restitution},
+										 {"SnowDrag", &component.SnowDrag}})
+		{
+			if (!value.contains(name))
+				continue;
+			if (!value[name].is_number())
+				throw std::invalid_argument(std::string("Physics ") + name + " must be numeric");
+			*destination = value[name].get<float>();
+		}
+		if (value.contains("SnowTracking"))
+		{
+			if (!value["SnowTracking"].is_boolean())
+				throw std::invalid_argument("Physics SnowTracking must be boolean");
+			component.SnowTracking = value["SnowTracking"].get<bool>();
+		}
+		component.Validate();
+		return component;
+	}
+
 	Json Scene::Serialize() const
 	{
 		Json result = {{"Format", 1},
@@ -306,6 +412,8 @@ namespace Bellwether
 										  {"Script", entity.Script}});
 			if (!entity.ModelAsset.empty())
 				result["Entities"].back()["Model"] = {{"Asset", entity.ModelAsset}};
+			if (entity.Physics.Enabled || entity.Physics != PhysicsComponent{})
+				result["Entities"].back()["Physics"] = entity.Physics.Serialize();
 		}
 		return result;
 	}
@@ -313,9 +421,9 @@ namespace Bellwether
 	static void ReadEntity(Entity& entity, const Json& data, bool allowID = true)
 	{
 		if (allowID)
-			ValidateFields(data, {"ID", "Name", "Transform", "Script", "Model"});
+			ValidateFields(data, {"ID", "Name", "Transform", "Script", "Model", "Physics"});
 		else
-			ValidateFields(data, {"Name", "Transform", "Script", "Model"});
+			ValidateFields(data, {"Name", "Transform", "Script", "Model", "Physics"});
 		if (!data.at("Name").is_string())
 			throw std::invalid_argument("Entity name must be a string");
 		entity.Name = data.at("Name").get<std::string>();
@@ -344,6 +452,9 @@ namespace Bellwether
 			entity.ModelAsset = data.at("Model").at("Asset").get<std::string>();
 			ValidateModelAssetPath(entity.ModelAsset);
 		}
+		entity.Physics = PhysicsComponent{};
+		if (data.contains("Physics"))
+			entity.Physics = PhysicsComponent::Deserialize(data["Physics"]);
 	}
 
 	void Scene::Deserialize(const Json& data)
@@ -444,11 +555,26 @@ namespace Bellwether
 			{
 				ValidateFields(command, {"Operation", "ID", "Transform"});
 				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
-				Json replacement = {
-					{"Name", entity.Name}, {"Transform", command.at("Transform")}, {"Script", entity.Script}};
-				if (!entity.ModelAsset.empty())
-					replacement["Model"] = {{"Asset", entity.ModelAsset}};
-				ReadEntity(entity, replacement, false);
+				const auto& transform = command.at("Transform");
+				ValidateFields(transform, {"Translation", "Rotation", "Scale"});
+				TransformComponent updated;
+				updated.Translation = ReadVector(transform.at("Translation"));
+				updated.Rotation = ReadVector(transform.at("Rotation"));
+				updated.Scale = ReadVector(transform.at("Scale"));
+				if (glm::any(glm::lessThanEqual(glm::abs(updated.Scale), glm::vec3(0.00001f))))
+					throw std::invalid_argument("Transform scale must be invertible");
+				entity.Transform = updated;
+			}
+			else if (operation == "SetPhysics")
+			{
+				ValidateFields(command, {"Operation", "ID", "Physics"});
+				auto& entity = candidate.GetEntity(ReadEntityID(command.at("ID")));
+				if (!command.at("Physics").is_object())
+					throw std::invalid_argument("SetPhysics command requires a Physics object");
+				auto merged = entity.Physics.Serialize();
+				for (const auto& [name, value] : command.at("Physics").items())
+					merged[name] = value;
+				entity.Physics = PhysicsComponent::Deserialize(merged);
 			}
 			else if (operation == "SetModel")
 			{

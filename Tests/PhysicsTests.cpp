@@ -1,4 +1,5 @@
 #include "Bellwether/PhysicsWorld.h"
+#include "Bellwether/SceneSimulation.h"
 #include "Bellwether/SnowField.h"
 
 #include <cfenv>
@@ -675,6 +676,44 @@ namespace
 		Check(powderState.Position == powderReplay.Position &&
 				  powderState.LinearVelocity == powderReplay.LinearVelocity && powderSnow == powderSnowReplay,
 			  "snow-coupled physics replay is bit-identical");
+
+		// SceneSimulation full Entity <-> PhysicsWorld <-> SnowField integration
+		Scene scene;
+		scene.ApplyCommands(Json::array(
+			{{{"Operation", "SetSnowSettings"},
+			  {"Settings", {{"Enabled", true}, {"Resolution", 128}, {"WorldExtent", 64.0}, {"BaseDepth", 0.45}}}},
+			 {{"Operation", "Create"}, {"Name", "Ground"}, {"Translation", {0, -0.5, 0}}},
+			 {{"Operation", "SetPhysics"},
+			  {"ID", 1},
+			  {"Physics",
+			   {{"Enabled", true},
+				{"Shape", "Box"},
+				{"Motion", "Static"},
+				{"HalfExtents", {32.0, 0.5, 32.0}},
+				{"Friction", 0.25}}}},
+			 {{"Operation", "Create"}, {"Name", "Sled"}, {"Translation", {-6, 0.5, 0}}},
+			 {{"Operation", "SetPhysics"},
+			  {"ID", 2},
+			  {"Physics",
+			   {{"Enabled", true},
+				{"Shape", "Sphere"},
+				{"Motion", "Dynamic"},
+				{"Radius", 0.5},
+				{"Mass", 40.0},
+				{"Friction", 0.25},
+				{"SnowTracking", true},
+				{"SnowDrag", 2.0}}}}}));
+		SceneSimulation sim(scene);
+		Check(sim.HasPhysicsBody(1) && sim.HasPhysicsBody(2), "SceneSimulation creates physics bodies for entities");
+		sim.SetEntityVelocity(2, {7.0f, 0.0f, 0.0f});
+		for (int frame = 0; frame < 45; ++frame)
+			sim.Step(1.0 / 60.0);
+		Check(scene.GetEntity(2).Transform.Translation.x > -4.5f &&
+				  sim.GetSnowField().Sample({-4.5f, 0.0f}).Compression > 0.05f,
+			  "SceneSimulation updates entity transforms and carves snow tracks");
+		scene.DestroyEntity(2);
+		sim.Step(1.0 / 60.0);
+		Check(!sim.HasPhysicsBody(2), "SceneSimulation cleans up physics body after entity destruction");
 	}
 
 } // namespace
